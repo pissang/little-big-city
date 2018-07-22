@@ -9,6 +9,7 @@ import LRU from 'lru-cache';
 import quickhull from 'quickhull3d';
 import toOBJ from './toOBJ';
 import JSZip from 'jszip';
+import tessellate from './tessellate';
 
 const mvtCache = LRU(50);;
 
@@ -21,9 +22,13 @@ let downloading = false;
 const config = {
     radius: 60,
     curveness: 1,
+    showEarth: true,
     earthColor: '#c2ebb6',
+    showBuildings: true,
     buildingsColor: '#fff',
+    showRoads: true,
     roadsColor: '#828282',
+    showWater: false,
     waterColor: '#80a9d7',
     autoRotateSpeed: 0,
     sky: true,
@@ -138,6 +143,7 @@ const app = application.create('#viewport', {
 
         app.methods.updateEarthSphere();
         app.methods.updateElements();
+        app.methods.updateVisibility();
 
         app.createAmbientCubemapLight('./asset/Grand_Canyon_C.hdr', 0.2, 0.8, 1).then(result => {
             const skybox = new plugin.Skybox({
@@ -205,6 +211,10 @@ const app = application.create('#viewport', {
             function createElementMesh(elConfig, features, tile, idx) {
                 const extent = tile.extent2d.convertTo(c => map.pointToCoord(c)).toJSON();
                 const scale = 1e4;
+
+                if (elConfig.type === 'water') {
+                    console.log(JSON.stringify({ type: 'FeatureCollection', features: features}));
+                }
                 const result = extrudeGeoJSON({features: features}, {
                     translate: [-extent.xmin * scale, -extent.ymin * scale],
                     scale: [scale, scale],
@@ -220,6 +230,11 @@ const app = application.create('#viewport', {
                 };
                 const poly = result[elConfig.geometryType];
                 const geo = new Geometry();
+                if (elConfig.type === 'water') {
+                    const {indices, position} = tessellate(poly.position, poly.indices, 8);
+                    poly.indices = indices;
+                    poly.position = position;
+                }
                 geo.attributes.position.value = distortion(
                     poly.position, boundingRect,
                     config.radius, config.curveness, faces[idx]
@@ -288,6 +303,11 @@ const app = application.create('#viewport', {
                                 tile, idx
                             );
                         }
+
+                        this._advRenderer.render();
+                        setTimeout(() => {
+                            this._advRenderer.render();
+                        }, 20);
                     });
             });
         },
@@ -321,6 +341,18 @@ const app = application.create('#viewport', {
         updateSky(app) {
             config.sky ? this._skybox.attachScene(app.scene) : this._skybox.detachScene();
             this._advRenderer.render();
+        },
+
+        updateVisibility(app) {
+            this._earthNode.invisible = !config.showEarth;
+            this._elementsNodes.buildings.invisible = !config.showBuildings;
+            this._elementsNodes.roads.invisible = !config.showRoads;
+            this._elementsNodes.water.invisible = !config.showWater;
+
+            this._advRenderer.render();
+            setTimeout(() => {
+                this._advRenderer.render();
+            }, 20);
         }
     }
 });
@@ -348,10 +380,18 @@ const ui = new dat.GUI();
 ui.add(config, 'radius', 30, 100).step(1).onChange(updateAll);
 ui.add(config, 'autoRotateSpeed', -2, 2).step(0.01).onChange(app.methods.updateAutoRotate);
 ui.add(config, 'sky').onChange(app.methods.updateSky);
+ui.add(config, 'showEarth').onChange(app.methods.updateVisibility);
 ui.addColor(config, 'earthColor').onChange(app.methods.updateColor);
+
+ui.add(config, 'showBuildings').onChange(app.methods.updateVisibility);
 ui.addColor(config, 'buildingsColor').onChange(app.methods.updateColor);
+
+ui.add(config, 'showRoads').onChange(app.methods.updateVisibility);
 ui.addColor(config, 'roadsColor').onChange(app.methods.updateColor);
+
+ui.add(config, 'showWater').onChange(app.methods.updateVisibility);
 ui.addColor(config, 'waterColor').onChange(app.methods.updateColor);
+
 ui.add(config, 'downloadOBJ').onChange(app.methods.updateColor);
 // ui.add(config, 'curveness', 0.01, 1).onChange(updateAll);
 
