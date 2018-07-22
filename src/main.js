@@ -1,6 +1,6 @@
 /* global mapboxgl */
 import {extrudeGeoJSON} from 'geometry-extrude';
-import {application, plugin, geometry as builtinGeometries, Texture2D, Geometry} from 'claygl';
+import {application, plugin, geometry as builtinGeometries, Texture2D, Geometry, Vector3} from 'claygl';
 import {VectorTile} from '@mapbox/vector-tile';
 import Protobuf from 'pbf';
 import * as dat from 'dat.gui';
@@ -25,11 +25,14 @@ const config = {
     showEarth: true,
     earthColor: '#c2ebb6',
     showBuildings: true,
-    buildingsColor: '#fff',
+    buildingsColor: '#fab8b8',
     showRoads: true,
     roadsColor: '#828282',
     showWater: false,
     waterColor: '#80a9d7',
+    showCloud: true,
+    cloudColor: '#fff',
+
     autoRotateSpeed: 0,
     sky: true,
     downloadOBJ: () => {
@@ -52,6 +55,9 @@ const config = {
             });
         // Behind all processing in case some errror happens.
         downloading = true;
+    },
+    randomCloud: () => {
+        app.methods.generateCloud();
     }
 };
 
@@ -125,7 +131,7 @@ const app = application.create('#viewport', {
             blurSize: 3
         });
 
-        const camera = app.createCamera([0, 0, 150], [0, 0, 0]);
+        const camera = app.createCamera([0, 0, 170], [0, 0, 0]);
 
         this._earthNode = app.createNode();
         this._cloudsNode = app.createNode();
@@ -144,6 +150,7 @@ const app = application.create('#viewport', {
         app.methods.updateEarthSphere();
         app.methods.updateElements();
         app.methods.updateVisibility();
+        app.methods.generateCloud();
 
         app.createAmbientCubemapLight('./asset/Grand_Canyon_C.hdr', 0.2, 0.8, 1).then(result => {
             const skybox = new plugin.Skybox({
@@ -212,9 +219,9 @@ const app = application.create('#viewport', {
                 const extent = tile.extent2d.convertTo(c => map.pointToCoord(c)).toJSON();
                 const scale = 1e4;
 
-                if (elConfig.type === 'water') {
-                    console.log(JSON.stringify({ type: 'FeatureCollection', features: features}));
-                }
+                // if (elConfig.type === 'water') {
+                //     console.log(JSON.stringify({ type: 'FeatureCollection', features: features}));
+                // }
                 const result = extrudeGeoJSON({features: features}, {
                     translate: [-extent.xmin * scale, -extent.ymin * scale],
                     scale: [scale, scale],
@@ -304,24 +311,78 @@ const app = application.create('#viewport', {
                             );
                         }
 
-                        this._advRenderer.render();
-                        setTimeout(() => {
-                            this._advRenderer.render();
-                        }, 20);
+                        app.methods.render();
                     });
             });
         },
 
-        updateCloud() {
-            const cloudNumber = 10;
-            for (let i = 0; i < cloudNumber; i++) {
+        generateCloud(app) {
+            const cloudNumber = 15;
+            this._cloudsNode.removeAll();
 
+            function randomInSphere(r) {
+                const alpha = Math.random() * Math.PI * 2;
+                const beta = Math.random() * Math.PI;
+
+                const r2 = Math.sin(beta) * r;
+                const y = Math.cos(beta) * r;
+                const x = Math.cos(alpha) * r2;
+                const z = Math.sin(alpha) * r2;
+                return [x, y, z];
             }
+            for (let i = 0; i < cloudNumber; i++) {
+                const positionArr = new Float32Array(5 * 40 * 3);
+                let off = 0;
+                let indices = [];
+
+                let dx = Math.random() - 0.5;
+                let dy = Math.random() - 0.5;
+                const len = Math.sqrt(dx * dx + dy * dy);
+                dx /= len; dy /= len;
+
+                const dist = 4 + Math.random() * 2;
+
+                for (let i = 0; i < 5; i++) {
+                    const posOff = (i - 2) + (Math.random() * 0.4 - 0.2);
+                    const rBase = 3 - Math.abs(posOff);
+                    const points = [];
+                    const vertexOffset = off / 3;
+                    for (let i = 0; i < 40; i++) {
+                        const r = Math.random() * rBase + rBase;
+                        const pt = randomInSphere(r);
+                        points.push(pt);
+                        positionArr[off++] = pt[0] + posOff * dist * dx;
+                        positionArr[off++] = pt[1] + posOff * dist * dy;
+                        positionArr[off++] = pt[2];
+                    }
+                    const tmp = quickhull(points);
+                    for (let m = 0; m < tmp.length; m++) {
+                        indices.push(tmp[m][0] + vertexOffset);
+                        indices.push(tmp[m][1] + vertexOffset);
+                        indices.push(tmp[m][2] + vertexOffset);
+                    }
+                }
+
+                const geo = new Geometry();
+                geo.attributes.position.value = positionArr;
+                geo.initIndicesFromArray(indices);
+                geo.generateFaceNormals();
+
+                const mesh = app.createMesh(geo, {
+                    roughness: 1
+                }, this._cloudsNode);
+                mesh.position.setArray(randomInSphere(config.radius / Math.sqrt(2) + 20 + Math.random() * 10));
+                mesh.lookAt(Vector3.ZERO);
+            }
+            app.methods.render();
         },
 
         updateColor() {
             this._earthNode.eachChild(mesh => {
                 mesh.material.set('color', config.earthColor);
+            });
+            this._cloudsNode.eachChild(mesh => {
+                mesh.material.set('color', config.cloudColor);
             });
             for (let key in this._elementsMaterials) {
                 this._elementsMaterials[key].set('color', config[key + 'Color']);
@@ -331,6 +392,9 @@ const app = application.create('#viewport', {
 
         render(app) {
             this._advRenderer.render();
+            setTimeout(() => {
+                this._advRenderer.render();
+            }, 20);
         },
 
         updateAutoRotate() {
@@ -345,14 +409,13 @@ const app = application.create('#viewport', {
 
         updateVisibility(app) {
             this._earthNode.invisible = !config.showEarth;
+            this._cloudsNode.invisible = !config.showCloud;
+
             this._elementsNodes.buildings.invisible = !config.showBuildings;
             this._elementsNodes.roads.invisible = !config.showRoads;
             this._elementsNodes.water.invisible = !config.showWater;
 
-            this._advRenderer.render();
-            setTimeout(() => {
-                this._advRenderer.render();
-            }, 20);
+            app.methods.render();
         }
     }
 });
@@ -392,7 +455,10 @@ ui.addColor(config, 'roadsColor').onChange(app.methods.updateColor);
 ui.add(config, 'showWater').onChange(app.methods.updateVisibility);
 ui.addColor(config, 'waterColor').onChange(app.methods.updateColor);
 
-ui.add(config, 'downloadOBJ').onChange(app.methods.updateColor);
-// ui.add(config, 'curveness', 0.01, 1).onChange(updateAll);
+ui.add(config, 'showCloud').onChange(app.methods.updateVisibility);
+ui.addColor(config, 'cloudColor').onChange(app.methods.updateColor);
+
+ui.add(config, 'randomCloud');
+ui.add(config, 'downloadOBJ');
 
 window.addEventListener('resize', () => { app.resize(); app.methods.render(); });
