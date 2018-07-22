@@ -7,6 +7,9 @@ body {
     top: 0;
     right: 0;
     bottom: 0;
+
+    background: url(../asset/bg.jpg);
+    background-size: 100% 100%;
 }
 
 #map {

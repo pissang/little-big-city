@@ -8,6 +8,7 @@ import ClayAdvancedRenderer from 'claygl-advanced-renderer';
 import LRU from 'lru-cache';
 import quickhull from 'quickhull3d';
 import toOBJ from './toOBJ';
+import JSZip from 'jszip';
 
 const mvtCache = LRU(50);;
 
@@ -15,19 +16,37 @@ import distortion from './distortion';
 
 const maptalks = require('maptalks');
 
+let downloading = false;
+
 const config = {
-    size: 60,
+    radius: 60,
     curveness: 1,
     earthColor: '#c2ebb6',
     buildingsColor: '#fff',
     roadsColor: '#828282',
     waterColor: '#80a9d7',
+    autoRotateSpeed: 0,
+    sky: true,
     downloadOBJ: () => {
+        if (downloading) {
+            return;
+        }
         const {obj, mtl} = toOBJ(app.scene, {
             mtllib: 'city'
         });
-        saveAs(new Blob([obj], {type: 'text/plain'}), 'city.obj');
-        saveAs(new Blob([mtl], {type: 'text/plain'}), 'city.mtl');
+        const zip = new JSZip();
+        zip.file('city.obj', obj);
+        zip.file('city.mtl', mtl);
+        zip.generateAsync({type: 'blob', compression: 'DEFLATE' })
+            .then(content => {
+                downloading = false;
+                saveAs(content, 'city.zip');
+            }).catch(e => {
+                downloading = false;
+                console.error(e.toString());
+            });
+        // Behind all processing in case some errror happens.
+        downloading = true;
     }
 };
 
@@ -66,7 +85,7 @@ const vectorElements = [{
 }, {
     type: 'water',
     geometryType: 'polygon',
-    depth: 0.5
+    depth: 2
 }];
 
 const app = application.create('#viewport', {
@@ -106,9 +125,15 @@ const app = application.create('#viewport', {
         this._earthNode = app.createNode();
         this._cloudsNode = app.createNode();
 
-        this._elementsNode = {};
-        vectorElements.forEach(config => {
-            this._elementsNode[config.type] = app.createNode();
+        this._elementsNodes = {};
+        this._elementsMaterials = {};
+        vectorElements.forEach(el => {
+            this._elementsNodes[el.type] = app.createNode();
+            this._elementsMaterials[el.type] = app.createMaterial({
+                name: 'mat_' + el.type,
+                color: config[el.type + 'Color'],
+                roughness: 1
+            });
         });
 
         app.methods.updateEarthSphere();
@@ -120,6 +145,7 @@ const app = application.create('#viewport', {
                 scene: app.scene
             });
             skybox.material.set('lod', 2);
+            this._skybox = skybox;
             this._advRenderer.render();
         });
         const light = app.createDirectionalLight([-1, -1, -1], '#fff');
@@ -142,19 +168,22 @@ const app = application.create('#viewport', {
         updateEarthSphere(app) {
             this._earthNode.removeAll();
 
+            const earthMat = app.createMaterial({
+                roughness: 1,
+                color: config.earthColor,
+                name: 'mat_earth'
+            });
+
             faces.forEach((face, idx) => {
                 const planeGeo = new builtinGeometries.Plane({
                     widthSegments: 20,
                     heightSegments: 20
                 });
-                const plane = app.createMesh(planeGeo, {
-                    roughness: 1,
-                    color: config.earthColor
-                }, this._earthNode);
+                app.createMesh(planeGeo, earthMat, this._earthNode);
                 distortion(
                     planeGeo.attributes.position.value,
                     {x: -1, y: -1, width: 2, height: 2},
-                    config.size,
+                    config.radius,
                     config.curveness,
                     face
                 );
@@ -167,12 +196,13 @@ const app = application.create('#viewport', {
         updateElements() {
             this._id = Math.random();
 
-            const elementsNode = this._elementsNode;
-            for (let key in elementsNode) {
-                elementsNode[key].removeAll();
+            const elementsNodes = this._elementsNodes;
+            const elementsMaterials = this._elementsMaterials;
+            for (let key in elementsNodes) {
+                elementsNodes[key].removeAll();
             }
 
-            function createElementMesh(elementConfig, features, tile, idx) {
+            function createElementMesh(elConfig, features, tile, idx) {
                 const extent = tile.extent2d.convertTo(c => map.pointToCoord(c)).toJSON();
                 const scale = 1e4;
                 const result = extrudeGeoJSON({features: features}, {
@@ -181,27 +211,24 @@ const app = application.create('#viewport', {
                     lineWidth: 0.5,
                     excludeBottom: true,
                     simplify: 0.01,
-                    depth: elementConfig.depth
+                    depth: elConfig.depth
                 });
                 const boundingRect = {
                     x: 0, y: 0,
                     width: (extent.xmax - extent.xmin) * scale,
                     height: (extent.ymax - extent.ymin) * scale
                 };
-                const poly = result[elementConfig.geometryType];
+                const poly = result[elConfig.geometryType];
                 const geo = new Geometry();
                 geo.attributes.position.value = distortion(
                     poly.position, boundingRect,
-                    config.size, config.curveness, faces[idx]
+                    config.radius, config.curveness, faces[idx]
                 );
                 geo.indices = poly.indices;
                 geo.generateVertexNormals();
                 geo.updateBoundingBox();
 
-                app.createMesh(geo, {
-                    color: config[elementConfig.type + 'Color'],
-                    roughness: 1
-                }, elementsNode[elementConfig.type]);
+                app.createMesh(geo, elementsMaterials[elConfig.type], elementsNodes[elConfig.type]);
             }
 
             const tiles = mainLayer.getTiles();
@@ -276,15 +303,23 @@ const app = application.create('#viewport', {
             this._earthNode.eachChild(mesh => {
                 mesh.material.set('color', config.earthColor);
             });
-            for (let key in this._elementsNode) {
-                this._elementsNode[key].eachChild(mesh => {
-                    mesh.material.set('color', config[key + 'Color']);
-                });
+            for (let key in this._elementsMaterials) {
+                this._elementsMaterials[key].set('color', config[key + 'Color']);
             }
             this._advRenderer.render();
         },
 
-        render() {
+        render(app) {
+            this._advRenderer.render();
+        },
+
+        updateAutoRotate() {
+            this._control.autoRotateSpeed = config.autoRotateSpeed * 50;
+            this._control.autoRotate = Math.abs(config.autoRotateSpeed) > 0.3;
+        },
+
+        updateSky(app) {
+            config.sky ? this._skybox.attachScene(app.scene) : this._skybox.detachScene();
             this._advRenderer.render();
         }
     }
@@ -310,7 +345,9 @@ map.on('zoomend', function () {
 });
 
 const ui = new dat.GUI();
-ui.add(config, 'size', 50, 200).step(1).onChange(updateAll);
+ui.add(config, 'radius', 30, 100).step(1).onChange(updateAll);
+ui.add(config, 'autoRotateSpeed', -2, 2).step(0.01).onChange(app.methods.updateAutoRotate);
+ui.add(config, 'sky').onChange(app.methods.updateSky);
 ui.addColor(config, 'earthColor').onChange(app.methods.updateColor);
 ui.addColor(config, 'buildingsColor').onChange(app.methods.updateColor);
 ui.addColor(config, 'roadsColor').onChange(app.methods.updateColor);
