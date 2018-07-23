@@ -1,6 +1,13 @@
 /* global mapboxgl */
 import {extrudeGeoJSON} from 'geometry-extrude';
-import {application, plugin, geometry as builtinGeometries, Texture2D, Geometry, Vector3} from 'claygl';
+import {
+    application,
+    plugin,
+    geometry as builtinGeometries,
+    Texture2D,
+    Geometry,
+    Vector3
+} from 'claygl';
 import {VectorTile} from '@mapbox/vector-tile';
 import Protobuf from 'pbf';
 import * as dat from 'dat.gui';
@@ -10,6 +17,7 @@ import quickhull from 'quickhull3d';
 import toOBJ from './toOBJ';
 import JSZip from 'jszip';
 import tessellate from './tessellate';
+import vec2 from 'claygl/src/glmatrix/vec2';
 
 const mvtCache = LRU(50);;
 
@@ -98,6 +106,37 @@ const vectorElements = [{
     geometryType: 'polygon',
     depth: 2
 }];
+
+function subdivideLineFeatures(lineFeatures, maxDist) {
+
+    const v = [];
+    function addPoints(points) {
+        const newPoints = [];
+        for (let i = 0; i < points.length - 1; i++) {
+            vec2.sub(v, points[i + 1], points[i]);
+            const dist = vec2.len(v);
+            vec2.scale(v, v, 1 / dist);
+            newPoints.push(points[i]);
+            for (let d = maxDist; d < dist; d += maxDist) {
+                newPoints.push(vec2.scaleAndAdd([], points[i], v, d));
+            }
+        }
+        newPoints.push(points[points.length - 1]);
+        return newPoints;
+    }
+
+    lineFeatures.forEach(feature => {
+        const geometry = feature.geometry;
+        if (geometry.type === 'MultiLineString') {
+            for (let i = 0; i < geometry.coordinates.length; i++) {
+                geometry.coordinates[i] = addPoints(geometry.coordinates[i]);
+            }
+        }
+        else if (geometry.type === 'LineString') {
+            geometry.coordinates = addPoints(geometry.coordinates);
+        }
+    });
+}
 
 const app = application.create('#viewport', {
 
@@ -235,6 +274,9 @@ const app = application.create('#viewport', {
                 const extent = tile.extent2d.convertTo(c => map.pointToCoord(c)).toJSON();
                 const scale = 1e4;
 
+                if (elConfig.type === 'roads') {
+                    subdivideLineFeatures(features, 5e-4);
+                }
                 // if (elConfig.type === 'water') {
                 //     console.log(JSON.stringify({ type: 'FeatureCollection', features: features}));
                 // }
@@ -244,7 +286,7 @@ const app = application.create('#viewport', {
                     lineWidth: 0.5,
                     excludeBottom: true,
                     // bevelSize: elConfig.type === 'buildings' ? 0.2: 0,
-                    simplify: 0.01,
+                    simplify: elConfig.type === 'buildings' ? 0.01 : 0,
                     depth: elConfig.depth
                 });
                 const boundingRect = {
