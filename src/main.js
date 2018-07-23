@@ -140,10 +140,17 @@ const app = application.create('#viewport', {
 
         this._elementsNodes = {};
         this._elementsMaterials = {};
+
+        this._diffuseTex = app.loadTextureSync('./asset/paper-detail.png', {
+            anisotropic: 8
+        });
+
         vectorElements.forEach(el => {
             this._elementsNodes[el.type] = app.createNode();
             this._elementsMaterials[el.type] = app.createMaterial({
                 name: 'mat_' + el.type,
+                diffuseMap: this._diffuseTex,
+                uvRepeat: [10, 10],
                 color: config[el.type + 'Color'],
                 roughness: 1
             });
@@ -186,6 +193,8 @@ const app = application.create('#viewport', {
             const earthMat = app.createMaterial({
                 roughness: 1,
                 color: config.earthColor,
+                diffuseMap: this._diffuseTex,
+                uvRepeat: [2, 2],
                 name: 'mat_earth'
             });
 
@@ -250,7 +259,7 @@ const app = application.create('#viewport', {
                     poly.indices = indices;
                     poly.position = position;
                 }
-
+                geo.attributes.texcoord0.value = poly.uv;
                 geo.indices = poly.indices;
                 const mesh = app.createMesh(geo, elementsMaterials[elConfig.type], elementsNodes[elConfig.type]);
                 if (elConfig.type === 'buildings') {
@@ -371,6 +380,7 @@ const app = application.create('#viewport', {
 
         generateCloud(app) {
             const cloudNumber = 15;
+            const pointCount = 100;
             this._cloudsNode.removeAll();
 
             function randomInSphere(r) {
@@ -384,7 +394,7 @@ const app = application.create('#viewport', {
                 return [x, y, z];
             }
             for (let i = 0; i < cloudNumber; i++) {
-                const positionArr = new Float32Array(5 * 40 * 3);
+                const positionArr = new Float32Array(5 * pointCount * 3);
                 let off = 0;
                 let indices = [];
 
@@ -400,7 +410,7 @@ const app = application.create('#viewport', {
                     const rBase = 3 - Math.abs(posOff);
                     const points = [];
                     const vertexOffset = off / 3;
-                    for (let i = 0; i < 40; i++) {
+                    for (let i = 0; i < pointCount; i++) {
                         const r = Math.random() * rBase + rBase;
                         const pt = randomInSphere(r);
                         points.push(pt);
@@ -496,22 +506,28 @@ const ui = new dat.GUI();
 ui.add(config, 'radius', 30, 100).step(1).onChange(updateAll);
 ui.add(config, 'autoRotateSpeed', -2, 2).step(0.01).onChange(app.methods.updateAutoRotate);
 ui.add(config, 'sky').onChange(app.methods.updateSky);
-ui.add(config, 'showEarth').onChange(app.methods.updateVisibility);
-ui.addColor(config, 'earthColor').onChange(app.methods.updateColor);
 
-ui.add(config, 'showBuildings').onChange(app.methods.updateVisibility);
-ui.addColor(config, 'buildingsColor').onChange(app.methods.updateColor);
+const earthFolder = ui.addFolder('Earth');
+earthFolder.add(config, 'showEarth').onChange(app.methods.updateVisibility);
+earthFolder.addColor(config, 'earthColor').onChange(app.methods.updateColor);
 
-ui.add(config, 'showRoads').onChange(app.methods.updateVisibility);
-ui.addColor(config, 'roadsColor').onChange(app.methods.updateColor);
+const buildingsFolder = ui.addFolder('Buildings');
+buildingsFolder.add(config, 'showBuildings').onChange(app.methods.updateVisibility);
+buildingsFolder.addColor(config, 'buildingsColor').onChange(app.methods.updateColor);
 
-ui.add(config, 'showWater').onChange(app.methods.updateVisibility);
-ui.addColor(config, 'waterColor').onChange(app.methods.updateColor);
+const roadsFolder = ui.addFolder('Roads');
+roadsFolder.add(config, 'showRoads').onChange(app.methods.updateVisibility);
+roadsFolder.addColor(config, 'roadsColor').onChange(app.methods.updateColor);
 
-ui.add(config, 'showCloud').onChange(app.methods.updateVisibility);
-ui.addColor(config, 'cloudColor').onChange(app.methods.updateColor);
+const waterFolder = ui.addFolder('Water');
+waterFolder.add(config, 'showWater').onChange(app.methods.updateVisibility);
+waterFolder.addColor(config, 'waterColor').onChange(app.methods.updateColor);
 
-ui.add(config, 'randomCloud');
+const cloudFolder = ui.addFolder('Cloud');
+cloudFolder.add(config, 'showCloud').onChange(app.methods.updateVisibility);
+cloudFolder.addColor(config, 'cloudColor').onChange(app.methods.updateColor);
+cloudFolder.add(config, 'randomCloud');
+
 ui.add(config, 'downloadOBJ');
 
 window.addEventListener('resize', () => { app.resize(); app.methods.render(); });
