@@ -103,6 +103,8 @@ const app = application.create('#viewport', {
 
     autoRender: false,
 
+    devicePixelRatio: 1,
+
     init(app) {
 
         this._advRenderer = new ClayAdvancedRenderer(app.renderer, app.scene, app.timeline, {
@@ -206,14 +208,19 @@ const app = application.create('#viewport', {
             this._advRenderer.render();
         },
 
-        updateElements() {
+        updateElements(app) {
             this._id = Math.random();
-
+            const advRenderer = this._advRenderer;
             const elementsNodes = this._elementsNodes;
             const elementsMaterials = this._elementsMaterials;
             for (let key in elementsNodes) {
                 elementsNodes[key].removeAll();
             }
+
+            for (let key in this._buildingAnimators) {
+                this._buildingAnimators[key].stop();
+            }
+            const buildingAnimators = this._buildingAnimators = {};
 
             function createElementMesh(elConfig, features, tile, idx) {
                 const extent = tile.extent2d.convertTo(c => map.pointToCoord(c)).toJSON();
@@ -227,6 +234,7 @@ const app = application.create('#viewport', {
                     scale: [scale, scale],
                     lineWidth: 0.5,
                     excludeBottom: true,
+                    // bevelSize: elConfig.type === 'buildings' ? 0.2: 0,
                     simplify: 0.01,
                     depth: elConfig.depth
                 });
@@ -242,15 +250,60 @@ const app = application.create('#viewport', {
                     poly.indices = indices;
                     poly.position = position;
                 }
-                geo.attributes.position.value = distortion(
-                    poly.position, boundingRect,
-                    config.radius, config.curveness, faces[idx]
-                );
-                geo.indices = poly.indices;
-                geo.generateVertexNormals();
-                geo.updateBoundingBox();
 
-                app.createMesh(geo, elementsMaterials[elConfig.type], elementsNodes[elConfig.type]);
+                geo.indices = poly.indices;
+                const mesh = app.createMesh(geo, elementsMaterials[elConfig.type], elementsNodes[elConfig.type]);
+                if (elConfig.type === 'buildings') {
+                    let positionAnimateFrom = new Float32Array(poly.position);
+                    for (let i = 0; i < positionAnimateFrom.length; i += 3) {
+                        const z = positionAnimateFrom[i + 2];
+                        if (z > 0) {
+                            positionAnimateFrom[i + 2] = 1;
+                        }
+                    }
+
+                    let positionAnimateTo = distortion(
+                        poly.position, boundingRect, config.radius, config.curveness, faces[idx]
+                    );
+                    positionAnimateFrom = distortion(
+                        positionAnimateFrom, boundingRect, config.radius, config.curveness, faces[idx]
+                    );
+                    geo.attributes.position.value = positionAnimateTo;
+                    geo.generateVertexNormals();
+                    geo.updateBoundingBox();
+
+                    const transitionPosition = new Float32Array(positionAnimateFrom);
+                    geo.attributes.position.value = transitionPosition;
+
+                    mesh.invisible = true;
+                    const obj = {
+                        p: 0
+                    };
+                    buildingAnimators[faces[idx]] = app.timeline.animate(obj)
+                        .when(2000, {
+                            p: 1
+                        })
+                        .delay(1000)
+                        .during((obj, p) => {
+                            mesh.invisible = false;
+                            for (let i = 0; i < transitionPosition.length; i++) {
+                                const a = positionAnimateFrom[i];
+                                const b = positionAnimateTo[i];
+                                transitionPosition[i] = (b - a) * p + a;
+                            }
+                            geo.dirty();
+                            advRenderer.render();
+                        })
+                        .start('elasticOut');
+                }
+                else {
+                    geo.attributes.position.value = distortion(
+                        poly.position, boundingRect,
+                        config.radius, config.curveness, faces[idx]
+                    );
+                    geo.generateVertexNormals();
+                    geo.updateBoundingBox();
+                }
             }
 
             const tiles = mainLayer.getTiles();

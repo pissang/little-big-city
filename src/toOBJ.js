@@ -51,6 +51,9 @@ export default function exportGL2OBJ(scene, opts) {
     let textureLib = {};
     let indexStart = 1;
     scene.traverse(function (mesh) {
+        if (mesh.invisible) {
+            return;
+        }
         if (mesh.isRenderable() && mesh.geometry.vertexCount) {
             let materialName = 'mat_' + matCount++;
             objStr += 'o ' + mesh.name + '\n';
