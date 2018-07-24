@@ -6,10 +6,29 @@
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
     <title>Little Big City</title>
     <link rel="stylesheet" href="./css/main.css">
+    <script>
+        paceOptions = {
+            ajax: true,
+            document: true
+        };
+    </script>
+    <script src="lib/pace.min.js"></script>
 </head>
 <body>
     <div id="viewport"></div>
-    <div id="map"></div>
+    <div id="map">
+        <h3>Drag the map to select the area</h3>
+        <div id="map-main"></div>
+    </div>
+    <div id="credits">
+        <a href="https://github.com/pissang/little-big-city" target="_blank" class="source">Source Code</a>
+        Built on top of
+            <a href="https://github.com/pissang/claygl" target="_blank">ClayGL</a> by
+            <a href="https://twitter.com/pissang1" target="_blank">@pissang</a>
+        <div class="data-source">
+            Vector tile data is from <a target="_blank" href="https://developers.nextzen.org/about.html">nextzen</a>.
+        </div>
+    </div>
     <script src="lib/FileSaver.js"></script>
     <script src="./dist/bundle.js"></script>
 </body>

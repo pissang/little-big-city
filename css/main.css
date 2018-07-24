@@ -1,5 +1,6 @@
 body {
     overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
 }
 #viewport {
     position: absolute;
@@ -13,8 +14,6 @@ body {
 }
 
 #map {
-    width: 450px;
-    height: 300px;
     position: absolute;
     right: 0;
     bottom: 0;
@@ -22,4 +21,130 @@ body {
     box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
     transform: scale(0.6, 0.6);
     transform-origin: 100% 100%;
+}
+#map-main {
+    width: 450px;
+    height: 300px;
+}
+
+#map h3 {
+    width: 450px;
+    height: 50px;
+    line-height: 50px;
+    margin: 0;
+    text-transform: uppercase;
+    font-weight: bold;
+    font-size: 18px;
+    padding-left: 10px;
+    background: #aaa;
+    color: white;
+}
+
+#map .maptalks-attribution {
+    font-size: 25px;
+    background-color: rgba(255, 255, 255, 0.8);
+    color: #fff;
+    padding: 5px;
+}
+
+#credits {
+    position: absolute;
+    width: 350px;
+    bottom: 10px;
+    left: 50%;
+    margin-left: -175px;
+    text-align: center;
+    z-index: 1000;
+    font-size: 12px;
+    color: #333;
+    background: rgba(255, 255, 255, 0.8);
+    border-radius: 5px;
+    padding: 5px;
+    line-height: 20px;
+}
+
+#credits .source {
+    color: #000;
+    font-size: 14px;
+    margin-right: 14px;
+}
+#credits a {
+    color: #111;
+}
+
+.pace {
+    -webkit-pointer-events: none;
+    pointer-events: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    user-select: none;
+}
+
+.pace-inactive {
+    display: none;
+}
+
+.pace .pace-progress {
+    background: #29d;
+    position: fixed;
+    z-index: 2000;
+    top: 0;
+    right: 100%;
+    width: 100%;
+    height: 2px;
+}
+
+.pace .pace-progress-inner {
+    display: block;
+    position: absolute;
+    right: 0px;
+    width: 100px;
+    height: 100%;
+    box-shadow: 0 0 10px #29d, 0 0 5px #29d;
+    opacity: 1.0;
+    -webkit-transform: rotate(3deg) translate(0px, -4px);
+    -moz-transform: rotate(3deg) translate(0px, -4px);
+    -ms-transform: rotate(3deg) translate(0px, -4px);
+    -o-transform: rotate(3deg) translate(0px, -4px);
+    transform: rotate(3deg) translate(0px, -4px);
+}
+
+.pace .pace-activity {
+    display: block;
+    position: fixed;
+    z-index: 2000;
+    top: 15px;
+    right: 15px;
+    width: 14px;
+    height: 14px;
+    border: solid 2px transparent;
+    border-top-color: #29d;
+    border-left-color: #29d;
+    border-radius: 10px;
+    -webkit-animation: pace-spinner 400ms linear infinite;
+    -moz-animation: pace-spinner 400ms linear infinite;
+    -ms-animation: pace-spinner 400ms linear infinite;
+    -o-animation: pace-spinner 400ms linear infinite;
+    animation: pace-spinner 400ms linear infinite;
+}
+
+@-webkit-keyframes pace-spinner {
+0% { -webkit-transform: rotate(0deg); transform: rotate(0deg); }
+100% { -webkit-transform: rotate(360deg); transform: rotate(360deg); }
+}
+@-moz-keyframes pace-spinner {
+0% { -moz-transform: rotate(0deg); transform: rotate(0deg); }
+100% { -moz-transform: rotate(360deg); transform: rotate(360deg); }
+}
+@-o-keyframes pace-spinner {
+0% { -o-transform: rotate(0deg); transform: rotate(0deg); }
+100% { -o-transform: rotate(360deg); transform: rotate(360deg); }
+}
+@-ms-keyframes pace-spinner {
+0% { -ms-transform: rotate(0deg); transform: rotate(0deg); }
+100% { -ms-transform: rotate(360deg); transform: rotate(360deg); }
+}
+@keyframes pace-spinner {
+0% { transform: rotate(0deg); transform: rotate(0deg); }
+100% { transform: rotate(360deg); transform: rotate(360deg); }
 }

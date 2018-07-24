@@ -69,14 +69,14 @@ const config = {
     }
 };
 
-const mvtUrlTpl = 'https://tile.nextzen.org/tilezen/vector/v1/256/all/{z}/{x}/{y}.mvt?api_key=EWFsMD1DSEysLDWd2hj2cw';
+const mvtUrlTpl = 'https://{s}.tile.nextzen.org/tilezen/vector/v1/256/all/{z}/{x}/{y}.mvt?api_key=EWFsMD1DSEysLDWd2hj2cw';
 
 const mainLayer = new maptalks.TileLayer('base', {
     tileSize: [256, 256],
     urlTemplate: 'http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     subdomains: ['a', 'b', 'c']
 });
-const map = new maptalks.Map('map', {
+const map = new maptalks.Map('map-main', {
     // center: [-0.113049, 51.498568],
     // center: [-73.97332, 40.76462],
     center: [-74.0130345, 40.70635160000003],
@@ -275,7 +275,7 @@ const app = application.create('#viewport', {
                 const scale = 1e4;
 
                 if (elConfig.type === 'roads') {
-                    subdivideLineFeatures(features, 5e-4);
+                    subdivideLineFeatures(features, 4e-4);
                 }
                 // if (elConfig.type === 'water') {
                 //     console.log(JSON.stringify({ type: 'FeatureCollection', features: features}));
@@ -358,15 +358,17 @@ const app = application.create('#viewport', {
             }
 
             const tiles = mainLayer.getTiles();
-
+            const subdomains = ['a', 'b', 'c'];
             tiles.tileGrids[0].tiles.forEach((tile, idx) => {
                 const fetchId = this._id;
                 if (idx >= 6) {
                     return;
                 }
+
                 const url = mvtUrlTpl.replace('{z}', tile.z)
                     .replace('{x}', tile.x)
-                    .replace('{y}', tile.y);
+                    .replace('{y}', tile.y)
+                    .replace('{s}', subdomains[idx % 3]);
 
                 if (mvtCache.get(url)) {
                     const features = mvtCache.get(url);
