@@ -187,12 +187,12 @@ const app = application.create('#viewport', {
         vectorElements.forEach(el => {
             this._elementsNodes[el.type] = app.createNode();
             this._elementsMaterials[el.type] = app.createMaterial({
-                name: 'mat_' + el.type,
                 diffuseMap: this._diffuseTex,
                 uvRepeat: [10, 10],
                 color: config[el.type + 'Color'],
                 roughness: 1
             });
+            this._elementsMaterials[el.type].name = 'mat_' + el.type;
         });
 
         app.methods.updateEarthSphere();
@@ -233,9 +233,8 @@ const app = application.create('#viewport', {
                 roughness: 1,
                 color: config.earthColor,
                 diffuseMap: this._diffuseTex,
-                uvRepeat: [2, 2],
-                name: 'mat_earth'
             });
+            earthMat.name = 'mat_earth';
 
             faces.forEach((face, idx) => {
                 const planeGeo = new builtinGeometries.Plane({
@@ -427,6 +426,11 @@ const app = application.create('#viewport', {
             const pointCount = 100;
             this._cloudsNode.removeAll();
 
+            const cloudMaterial = app.createMaterial({
+                roughness: 1
+            });
+            cloudMaterial.name = 'mat_cloud';
+
             function randomInSphere(r) {
                 const alpha = Math.random() * Math.PI * 2;
                 const beta = Math.random() * Math.PI;
@@ -475,9 +479,7 @@ const app = application.create('#viewport', {
                 geo.initIndicesFromArray(indices);
                 geo.generateFaceNormals();
 
-                const mesh = app.createMesh(geo, {
-                    roughness: 1
-                }, this._cloudsNode);
+                const mesh = app.createMesh(geo, cloudMaterial, this._cloudsNode);
                 mesh.position.setArray(randomInSphere(config.radius / Math.sqrt(2) + 20 + Math.random() * 10));
                 mesh.lookAt(Vector3.ZERO);
             }

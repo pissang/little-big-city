@@ -4,7 +4,9 @@ var CREDIT = '# https://github.com/pissang/little-big-city\n';
 function quantizeArr(out, arr, precision) {
     out[0] = Math.round(arr[0] * precision) / precision;
     out[1] = Math.round(arr[1] * precision) / precision;
-    out[2] = Math.round(arr[2] * precision) / precision;
+    if (arr.length > 2) {
+        out[2] = Math.round(arr[2] * precision) / precision;
+    }
 }
 
 function phongFromRoughness(r) {
@@ -47,7 +49,6 @@ export default function exportGL2OBJ(scene, opts) {
     objStr += 'mtllib ' + opts.mtllib + '.mtl\n';
 
     let materialLib = {};
-    let matCount = 0;
     let textureLib = {};
     let indexStart = 1;
     scene.traverse(function (mesh) {
@@ -55,7 +56,7 @@ export default function exportGL2OBJ(scene, opts) {
             return;
         }
         if (mesh.isRenderable() && mesh.geometry.vertexCount) {
-            let materialName = 'mat_' + matCount++;
+            let materialName = mesh.material.name;
             objStr += 'o ' + mesh.name + '\n';
 
             materialLib[materialName] = getMaterialParameters(mesh.material, textureLib);
@@ -105,9 +106,16 @@ export default function exportGL2OBJ(scene, opts) {
                     quantizeArr(tmp, nor.array, 1e3);
                     vnStr.push('vn ' + tmp.join(' '));
                 }
+                else {
+                    vnStr.push('vn 0 0 0');
+                }
                 if (hasTexcoord) {
                     texcoordAttr.get(i, uv);
+                    quantizeArr(uv, uv, 1e5);
                     vtStr.push('vt ' + uv.join(' '));
+                }
+                else {
+                    vtStr.push('vt 0 0');
                 }
             }
 
@@ -119,15 +127,15 @@ export default function exportGL2OBJ(scene, opts) {
                 for (var k = 0; k < 3; k++) {
                     indices[k] += indexStart;
                     var idx = indices[k];
-                    if (hasTexcoord) {
+                    // if (hasTexcoord) {
                         indices[k] += '/' + idx;
-                    }
-                    if (hasNormal) {
-                        if (!hasTexcoord) {
-                            indices[k] += '/';
-                        }
+                    // }
+                    // if (hasNormal) {
+                    //     if (!hasTexcoord) {
+                    //         indices[k] += '/';
+                    //     }
                         indices[k] += '/' + idx;
-                    }
+                    // }
                 }
 
                 fStr.push('f ' + indices.join(' '));
