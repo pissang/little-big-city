@@ -65,7 +65,7 @@ const config = {
         downloading = true;
     },
     randomCloud: () => {
-        app.methods.generateCloud();
+        app.methods.generateClouds();
     }
 };
 
@@ -198,7 +198,7 @@ const app = application.create('#viewport', {
         app.methods.updateEarthSphere();
         app.methods.updateElements();
         app.methods.updateVisibility();
-        app.methods.generateCloud();
+        app.methods.generateClouds();
 
         app.createAmbientCubemapLight('./asset/Grand_Canyon_C.hdr', 0.2, 0.8, 1).then(result => {
             const skybox = new plugin.Skybox({
@@ -233,6 +233,7 @@ const app = application.create('#viewport', {
                 roughness: 1,
                 color: config.earthColor,
                 diffuseMap: this._diffuseTex,
+                uvRepeat: [2, 2]
             });
             earthMat.name = 'mat_earth';
 
@@ -250,6 +251,11 @@ const app = application.create('#viewport', {
                     face
                 );
                 planeGeo.generateVertexNormals();
+            });
+
+            this._cloudsNode.eachChild(cloudMesh => {
+                const dist = cloudMesh.height + config.radius / Math.sqrt(2);
+                cloudMesh.position.normalize().scale(dist);
             });
 
             this._advRenderer.render();
@@ -421,7 +427,7 @@ const app = application.create('#viewport', {
             });
         },
 
-        generateCloud(app) {
+        generateClouds(app) {
             const cloudNumber = 15;
             const pointCount = 100;
             this._cloudsNode.removeAll();
@@ -479,9 +485,10 @@ const app = application.create('#viewport', {
                 geo.initIndicesFromArray(indices);
                 geo.generateFaceNormals();
 
-                const mesh = app.createMesh(geo, cloudMaterial, this._cloudsNode);
-                mesh.position.setArray(randomInSphere(config.radius / Math.sqrt(2) + 20 + Math.random() * 10));
-                mesh.lookAt(Vector3.ZERO);
+                const cloudMesh = app.createMesh(geo, cloudMaterial, this._cloudsNode);
+                cloudMesh.height = Math.random() * 10 + 20;
+                cloudMesh.position.setArray(randomInSphere(config.radius / Math.sqrt(2) + cloudMesh.height));
+                cloudMesh.lookAt(Vector3.ZERO);
             }
             app.methods.render();
         },
