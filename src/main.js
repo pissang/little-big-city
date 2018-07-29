@@ -18,6 +18,7 @@ import toOBJ from './toOBJ';
 import JSZip from 'jszip';
 import tessellate from './tessellate';
 import vec2 from 'claygl/src/glmatrix/vec2';
+import PolyBool from 'polybooljs';
 
 const mvtCache = LRU(50);;
 
@@ -30,14 +31,19 @@ let downloading = false;
 const config = {
     radius: 60,
     curveness: 1,
+
     showEarth: true,
     earthColor: '#c2ebb6',
+
     showBuildings: true,
     buildingsColor: '#fab8b8',
+
     showRoads: true,
     roadsColor: '#828282',
+
     showWater: false,
     waterColor: '#80a9d7',
+
     showCloud: true,
     cloudColor: '#fff',
 
@@ -100,14 +106,33 @@ const vectorElements = [{
 }, {
     type: 'roads',
     geometryType: 'polyline',
-    depth: 1
+    depth: 1.2
 }, {
     type: 'water',
     geometryType: 'polygon',
-    depth: 2
+    depth: 1
 }];
 
-function subdivideLineFeatures(lineFeatures, maxDist) {
+function iterateFeatureCoordinates(feature, cb) {
+    const geometry = feature.geometry;
+    if (geometry.type === 'MultiPolygon') {
+        for (let i = 0; i < geometry.coordinates.length; i++) {
+            for (let k = 0; k < geometry.coordinates[i].length; k++) {
+                geometry.coordinates[i][k] = cb(geometry.coordinates[i][k]);
+            }
+        }
+    }
+    else if (geometry.type === 'MultiLineString' || geometry.type === 'Polygon') {
+        for (let i = 0; i < geometry.coordinates.length; i++) {
+            geometry.coordinates[i] = cb(geometry.coordinates[i]);
+        }
+    }
+    else if (geometry.type === 'LineString') {
+        geometry.coordinates = cb(geometry.coordinates);
+    }
+}
+
+function subdivideLongEdges(features, maxDist) {
 
     const v = [];
     function addPoints(points) {
@@ -125,17 +150,44 @@ function subdivideLineFeatures(lineFeatures, maxDist) {
         return newPoints;
     }
 
-    lineFeatures.forEach(feature => {
+    features.forEach(feature => {
+        iterateFeatureCoordinates(feature, addPoints);
+    });
+}
+
+function scaleFeature(feature, offset, scale) {
+    function scalePoints(pts) {
+        for (let i = 0; i < pts.length; i++) {
+            pts[i][0] = (pts[i][0] + offset[0]) * scale[0];
+            pts[i][1] = (pts[i][1] + offset[1]) * scale[1];
+        }
+        return pts;
+    }
+    iterateFeatureCoordinates(feature, scalePoints);
+}
+
+function unionComplexPolygons(features) {
+    const mergedCoordinates = [];
+    features.forEach(feature => {
         const geometry = feature.geometry;
-        if (geometry.type === 'MultiLineString') {
-            for (let i = 0; i < geometry.coordinates.length; i++) {
-                geometry.coordinates[i] = addPoints(geometry.coordinates[i]);
+        if (geometry.type === 'Polygon') {
+            mergedCoordinates.push(feature.geometry.coordinates);
+        }
+        else if (geometry.type === 'MultiPolygon') {
+            for (let i = 0; i < feature.geometry.coordinates.length; i++) {
+                mergedCoordinates.push(feature.geometry.coordinates[i]);
             }
         }
-        else if (geometry.type === 'LineString') {
-            geometry.coordinates = addPoints(geometry.coordinates);
-        }
     });
+    const poly = PolyBool.polygonFromGeoJSON({
+        type: 'MultiPolygon',
+        coordinates: mergedCoordinates
+    });
+    return {
+        type: 'Feature',
+        properties: {},
+        geometry: PolyBool.polygonToGeoJSON(poly)
+    };
 }
 
 const app = application.create('#viewport', {
@@ -275,34 +327,22 @@ const app = application.create('#viewport', {
             }
             const buildingAnimators = this._buildingAnimators = {};
 
-            function createElementMesh(elConfig, features, tile, idx) {
-                const extent = tile.extent2d.convertTo(c => map.pointToCoord(c)).toJSON();
-                const scale = 1e4;
+            function createElementMesh(elConfig, features, boundingRect, idx) {
 
-                if (elConfig.type === 'roads') {
-                    subdivideLineFeatures(features, 4e-4);
+                if (elConfig.type === 'roads' || elConfig.type === 'water') {
+                    subdivideLongEdges(features, 4);
                 }
-                // if (elConfig.type === 'water') {
-                //     console.log(JSON.stringify({ type: 'FeatureCollection', features: features}));
-                // }
                 const result = extrudeGeoJSON({features: features}, {
-                    translate: [-extent.xmin * scale, -extent.ymin * scale],
-                    scale: [scale, scale],
                     lineWidth: 0.5,
                     excludeBottom: true,
                     // bevelSize: elConfig.type === 'buildings' ? 0.2: 0,
                     simplify: elConfig.type === 'buildings' ? 0.01 : 0,
                     depth: elConfig.depth
                 });
-                const boundingRect = {
-                    x: 0, y: 0,
-                    width: (extent.xmax - extent.xmin) * scale,
-                    height: (extent.ymax - extent.ymin) * scale
-                };
                 const poly = result[elConfig.geometryType];
                 const geo = new Geometry();
                 if (elConfig.type === 'water') {
-                    const {indices, position} = tessellate(poly.position, poly.indices, 8);
+                    const {indices, position} = tessellate(poly.position, poly.indices, 5);
                     poly.indices = indices;
                     poly.position = position;
                 }
@@ -359,6 +399,13 @@ const app = application.create('#viewport', {
                     );
                     geo.generateVertexNormals();
                     geo.updateBoundingBox();
+
+                    if (elConfig.type === 'water') {
+                        // mesh.culling = false;
+                        // mesh.material.define('fragment', 'DOUBLE_SIDED');
+                        // geo.generateBarycentric();
+                        // mesh.material.set('lineWidth', 1);
+                    }
                 }
             }
 
@@ -369,6 +416,14 @@ const app = application.create('#viewport', {
                 if (idx >= 6) {
                     return;
                 }
+
+                const extent = tile.extent2d.convertTo(c => map.pointToCoord(c)).toJSON();
+                const scale = 1e4;
+                const boundingRect = {
+                    x: 0, y: 0,
+                    width: (extent.xmax - extent.xmin) * scale,
+                    height: (extent.ymax - extent.ymin) * scale
+                };
 
                 const url = mvtUrlTpl.replace('{z}', tile.z)
                     .replace('{x}', tile.x)
@@ -408,17 +463,28 @@ const app = application.create('#viewport', {
                             features[type] = [];
                             for (let i = 0; i < vTile.layers[type].length; i++) {
                                 const feature = vTile.layers[type].feature(i).toGeoJSON(tile.x, tile.y, tile.z);
+                                scaleFeature(feature, [-extent.xmin, -extent.ymin], [scale, scale]);
                                 features[type].push(feature);
                             }
                         });
 
+                        if (features.water) {
+                            features.water = [unionComplexPolygons(features.water.filter(feature => {
+                                const geoType = feature.geometry && feature.geometry.type;
+                                return geoType === 'Polygon' || geoType === 'MultiPolygon';
+                            }))];
+                        }
+                        features.roads = features.roads.filter(feature => {
+                            const geoType = feature.geometry && feature.geometry.type;
+                            return geoType === 'LineString' || geoType === 'MultiLineString';
+                        });
 
                         mvtCache.set(url, features);
                         for (let key in features) {
                             createElementMesh(
                                 vectorElements.find(config => config.type === key),
                                 features[key],
-                                tile, idx
+                                boundingRect, idx
                             );
                         }
 

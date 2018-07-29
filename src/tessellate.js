@@ -14,14 +14,26 @@ export default function tesselate(position, indices, tolerance) {
     const appendIndices = [];
 
     let vtxOff = position.length / 3;
+
+    const vtxMap = {};
     function addPoint(pt, p1, p2, p3, i1, i2, i3) {
         if (pt === p1) { return i1; }
         else if (pt === p2) { return i2; }
         else if (pt === p3) { return i3; }
 
+        const x = Math.round(pt.array[0] * 100);
+        const y = Math.round(pt.array[1] * 100);
+        const z = Math.round(pt.array[2] * 100);
+        const key = x + '-' + y + '-' + z;
+        if (vtxMap[key] != null) {
+            return vtxMap[key];
+        }
+
         appendPosition.push(pt.array[0]);
         appendPosition.push(pt.array[1]);
         appendPosition.push(pt.array[2]);
+
+        vtxMap[key] = vtxOff;
 
         return vtxOff++;
     }
@@ -59,13 +71,15 @@ export default function tesselate(position, indices, tolerance) {
 
             let e1Points = [p2];
             let e2Points = [p2];
-            for (let d = tolerance; d < l1; d += tolerance) {
+            let step = l1 / Math.floor(l1 / tolerance);
+            for (let d = step; d < l1; d += step) {
                 const pt = Vector3.scaleAndAdd(new Vector3(), p2, e1, d);
                 e1Points.push(pt);
             }
             e1Points.push(p1);
 
-            for (let d = tolerance; d < l2; d += tolerance) {
+            step = l2 / Math.floor(l2 / tolerance);
+            for (let d = step; d < l2; d += step) {
                 const pt = Vector3.scaleAndAdd(new Vector3(), p2, e2, d);
                 e2Points.push(pt);
             }
@@ -87,7 +101,8 @@ export default function tesselate(position, indices, tolerance) {
 
                 const edgeIndices = [];
                 edgeIndices.push(addPoint(p11, p1, p2, p3, i1, i2, i3));
-                for (let d = tolerance; d < lee; d += tolerance) {
+                let step = lee / Math.floor(lee / tolerance);
+                for (let d = step; d < lee; d += step) {
                     const pt = Vector3.scaleAndAdd(new Vector3(), p11, ee, d);
                     edgeIndices.push(addPoint(pt, p1, p2, p3, i1, i2, i3));
                 }
