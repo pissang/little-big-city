@@ -28,6 +28,11 @@ const maptalks = require('maptalks');
 
 let downloading = false;
 
+const FLAT = true;
+
+// const TILE_SIZE = FLAT ? 512 : 256;
+const TILE_SIZE = 256;
+
 const config = {
     radius: 60,
     curveness: 1,
@@ -41,7 +46,7 @@ const config = {
     showRoads: true,
     roadsColor: '#828282',
 
-    showWater: false,
+    showWater: true,
     waterColor: '#80a9d7',
 
     showCloud: true,
@@ -75,10 +80,10 @@ const config = {
     }
 };
 
-const mvtUrlTpl = 'https://{s}.tile.nextzen.org/tilezen/vector/v1/256/all/{z}/{x}/{y}.mvt?api_key=EWFsMD1DSEysLDWd2hj2cw';
+const mvtUrlTpl = `https://{s}.tile.nextzen.org/tilezen/vector/v1/${TILE_SIZE}/all/{z}/{x}/{y}.mvt?api_key=EWFsMD1DSEysLDWd2hj2cw`;
 
 const mainLayer = new maptalks.TileLayer('base', {
-    tileSize: [256, 256],
+    tileSize: [TILE_SIZE, TILE_SIZE],
     urlTemplate: 'http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     subdomains: ['a', 'b', 'c']
 });
@@ -215,7 +220,7 @@ const app = application.create('#viewport', {
                     radius: 5
                 },
                 FXAA: {
-                    enable: true
+                    enable: false
                 }
             }
         });
@@ -224,7 +229,14 @@ const app = application.create('#viewport', {
             blurSize: 3
         });
 
-        const camera = app.createCamera([0, 0, 170], [0, 0, 0]);
+        const camera = app.createCamera([0, 0, 170], [0, 0, 0], FLAT ? 'ortho' : 'perspective');
+        if (FLAT) {
+            camera.top = 60;
+            camera.bottom = -60;
+            camera.near = 0;
+            camera.far = 1000;
+        }
+        this._camera = camera;
 
         this._earthNode = app.createNode();
         this._cloudsNode = app.createNode();
@@ -238,6 +250,9 @@ const app = application.create('#viewport', {
 
         vectorElements.forEach(el => {
             this._elementsNodes[el.type] = app.createNode();
+            if (FLAT) {
+                this._elementsNodes[el.type].rotation.rotateX(-Math.PI / 2);
+            }
             this._elementsMaterials[el.type] = app.createMaterial({
                 diffuseMap: this._diffuseTex,
                 uvRepeat: [10, 10],
@@ -246,11 +261,6 @@ const app = application.create('#viewport', {
             });
             this._elementsMaterials[el.type].name = 'mat_' + el.type;
         });
-
-        app.methods.updateEarthSphere();
-        app.methods.updateElements();
-        app.methods.updateVisibility();
-        app.methods.generateClouds();
 
         app.createAmbientCubemapLight('./asset/Grand_Canyon_C.hdr', 0.2, 0.8, 1).then(result => {
             const skybox = new plugin.Skybox({
@@ -269,11 +279,22 @@ const app = application.create('#viewport', {
             target: camera,
             domElement: app.container,
             timeline: app.timeline,
-            rotateSensitivity: 2
+            rotateSensitivity: 2,
+            orthographicAspect: app.renderer.getViewportAspect(),
+            minAlpha: 45,
+            maxAlpha: 45
         });
         this._control.on('update', () => {
             this._advRenderer.render();
         });
+
+        if (!FLAT) {
+            app.methods.updateEarthSphere();
+        }
+        app.methods.updateElements();
+        app.methods.updateVisibility();
+        app.methods.generateClouds();
+
         this._advRenderer.render();
     },
 
@@ -289,7 +310,7 @@ const app = application.create('#viewport', {
             });
             earthMat.name = 'mat_earth';
 
-            faces.forEach((face, idx) => {
+            faces.forEach(face => {
                 const planeGeo = new builtinGeometries.Plane({
                     widthSegments: 20,
                     heightSegments: 20
@@ -313,6 +334,10 @@ const app = application.create('#viewport', {
             this._advRenderer.render();
         },
 
+        updateEarthPlane() {
+
+        },
+
         updateElements(app) {
             this._id = Math.random();
             const advRenderer = this._advRenderer;
@@ -329,7 +354,7 @@ const app = application.create('#viewport', {
 
             function createElementMesh(elConfig, features, boundingRect, idx) {
 
-                if (elConfig.type === 'roads' || elConfig.type === 'water') {
+                if (!FLAT && elConfig.type === 'roads' || elConfig.type === 'water') {
                     subdivideLongEdges(features, 4);
                 }
                 const result = extrudeGeoJSON({features: features}, {
@@ -341,7 +366,7 @@ const app = application.create('#viewport', {
                 });
                 const poly = result[elConfig.geometryType];
                 const geo = new Geometry();
-                if (elConfig.type === 'water') {
+                if (!FLAT && elConfig.type === 'water') {
                     const {indices, position} = tessellate(poly.position, poly.indices, 5);
                     poly.indices = indices;
                     poly.position = position;
@@ -351,6 +376,7 @@ const app = application.create('#viewport', {
                 const mesh = app.createMesh(geo, elementsMaterials[elConfig.type], elementsNodes[elConfig.type]);
                 if (elConfig.type === 'buildings') {
                     let positionAnimateFrom = new Float32Array(poly.position);
+                    let positionAnimateTo = poly.position;
                     for (let i = 0; i < positionAnimateFrom.length; i += 3) {
                         const z = positionAnimateFrom[i + 2];
                         if (z > 0) {
@@ -358,12 +384,14 @@ const app = application.create('#viewport', {
                         }
                     }
 
-                    let positionAnimateTo = distortion(
-                        poly.position, boundingRect, config.radius, config.curveness, faces[idx]
-                    );
-                    positionAnimateFrom = distortion(
-                        positionAnimateFrom, boundingRect, config.radius, config.curveness, faces[idx]
-                    );
+                    if (!FLAT) {
+                        positionAnimateTo = distortion(
+                            poly.position, boundingRect, config.radius, config.curveness, faces[idx]
+                        );
+                        positionAnimateFrom = distortion(
+                            positionAnimateFrom, boundingRect, config.radius, config.curveness, faces[idx]
+                        );
+                    }
                     geo.attributes.position.value = positionAnimateTo;
                     geo.generateVertexNormals();
                     geo.updateBoundingBox();
@@ -393,32 +421,33 @@ const app = application.create('#viewport', {
                         .start('elasticOut');
                 }
                 else {
-                    geo.attributes.position.value = distortion(
-                        poly.position, boundingRect,
-                        config.radius, config.curveness, faces[idx]
-                    );
+                    if (FLAT) {
+                        geo.attributes.position.value = poly.position;
+                    }
+                    else {
+                        geo.attributes.position.value = distortion(
+                            poly.position, boundingRect,
+                            config.radius, config.curveness, faces[idx]
+                        );
+                    }
                     geo.generateVertexNormals();
                     geo.updateBoundingBox();
-
-                    if (elConfig.type === 'water') {
-                        // mesh.culling = false;
-                        // mesh.material.define('fragment', 'DOUBLE_SIDED');
-                        // geo.generateBarycentric();
-                        // mesh.material.set('lineWidth', 1);
-                    }
                 }
             }
 
-            const tiles = mainLayer.getTiles();
+            let tiles = mainLayer.getTiles().tileGrids[0].tiles;
             const subdomains = ['a', 'b', 'c'];
-            tiles.tileGrids[0].tiles.forEach((tile, idx) => {
+            if (FLAT) {
+                tiles = [tiles[Math.floor(tiles.length / 2)]];
+            }
+            tiles.forEach((tile, idx) => {
                 const fetchId = this._id;
                 if (idx >= 6) {
                     return;
                 }
 
                 const extent = tile.extent2d.convertTo(c => map.pointToCoord(c)).toJSON();
-                const scale = 1e4;
+                const scale = 2e4;
                 const boundingRect = {
                     x: 0, y: 0,
                     width: (extent.xmax - extent.xmin) * scale,
@@ -463,7 +492,12 @@ const app = application.create('#viewport', {
                             features[type] = [];
                             for (let i = 0; i < vTile.layers[type].length; i++) {
                                 const feature = vTile.layers[type].feature(i).toGeoJSON(tile.x, tile.y, tile.z);
-                                scaleFeature(feature, [-extent.xmin, -extent.ymin], [scale, scale]);
+                                scaleFeature(
+                                    feature, FLAT
+                                        ? [-(extent.xmax + extent.xmin) / 2, -(extent.ymax + extent.ymin) / 2]
+                                        : [-extent.xmin, -extent.ymin]
+                                    , [scale, scale * 1.4]
+                                );
                                 features[type].push(feature);
                             }
                         });
@@ -494,7 +528,7 @@ const app = application.create('#viewport', {
         },
 
         generateClouds(app) {
-            const cloudNumber = 15;
+            const cloudNumber = FLAT ? 10 : 15;
             const pointCount = 100;
             this._cloudsNode.removeAll();
 
@@ -535,8 +569,14 @@ const app = application.create('#viewport', {
                         const pt = randomInSphere(r);
                         points.push(pt);
                         positionArr[off++] = pt[0] + posOff * dist * dx;
-                        positionArr[off++] = pt[1] + posOff * dist * dy;
-                        positionArr[off++] = pt[2];
+                        if (FLAT) {
+                            positionArr[off++] = pt[1];
+                            positionArr[off++] = pt[2] + posOff * dist * dy;
+                        }
+                        else {
+                            positionArr[off++] = pt[1] + posOff * dist * dy;
+                            positionArr[off++] = pt[2];
+                        }
                     }
                     const tmp = quickhull(points);
                     for (let m = 0; m < tmp.length; m++) {
@@ -553,8 +593,17 @@ const app = application.create('#viewport', {
 
                 const cloudMesh = app.createMesh(geo, cloudMaterial, this._cloudsNode);
                 cloudMesh.height = Math.random() * 10 + 20;
-                cloudMesh.position.setArray(randomInSphere(config.radius / Math.sqrt(2) + cloudMesh.height));
-                cloudMesh.lookAt(Vector3.ZERO);
+                if (FLAT) {
+                    cloudMesh.position.setArray([
+                        (Math.random() - 0.5) * 100,
+                        Math.random() * 10 + 30,
+                        (Math.random() - 0.5) * 100
+                    ]);
+                }
+                else {
+                    cloudMesh.position.setArray(randomInSphere(config.radius / Math.sqrt(2) + cloudMesh.height));
+                    cloudMesh.lookAt(Vector3.ZERO);
+                }
             }
             app.methods.render();
         },
@@ -573,7 +622,9 @@ const app = application.create('#viewport', {
         },
 
         render(app) {
+            this._control.orthographicAspect = app.renderer.getViewportAspect();
             this._advRenderer.render();
+            // TODO
             setTimeout(() => {
                 this._advRenderer.render();
             }, 20);
@@ -603,7 +654,9 @@ const app = application.create('#viewport', {
 });
 
 function updateAll() {
-    app.methods.updateEarthSphere();
+    if (!FLAT) {
+        app.methods.updateEarthSphere();
+    }
     app.methods.updateElements();
 }
 
@@ -622,7 +675,9 @@ map.on('zoomend', function () {
 });
 
 const ui = new dat.GUI();
-ui.add(config, 'radius', 30, 100).step(1).onChange(updateAll);
+if (!FLAT) {
+    ui.add(config, 'radius', 30, 100).step(1).onChange(updateAll);
+}
 ui.add(config, 'autoRotateSpeed', -2, 2).step(0.01).onChange(app.methods.updateAutoRotate);
 ui.add(config, 'sky').onChange(app.methods.updateSky);
 
