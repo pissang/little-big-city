@@ -1,5 +1,5 @@
 /* global mapboxgl */
-import {extrudeGeoJSON} from 'geometry-extrude';
+import {extrudeGeoJSON, extrudePolygon} from 'geometry-extrude';
 import {
     application,
     plugin,
@@ -195,6 +195,15 @@ function unionComplexPolygons(features) {
     };
 }
 
+function unionRect(out, a, b) {
+    const x = Math.min(a.x, b.x);
+    const y = Math.min(a.y, b.y);
+    out.x = x;
+    out.y = y;
+    out.width = Math.max(a.width + a.x, b.width + b.x) - x;
+    out.height = Math.max(a.height + a.y, b.height + b.y) - y;
+}
+
 const app = application.create('#viewport', {
 
     autoRender: false,
@@ -231,8 +240,8 @@ const app = application.create('#viewport', {
 
         const camera = app.createCamera([0, 0, 170], [0, 0, 0], FLAT ? 'ortho' : 'perspective');
         if (FLAT) {
-            camera.top = 60;
-            camera.bottom = -60;
+            camera.top = 50;
+            camera.bottom = -50;
             camera.near = 0;
             camera.far = 1000;
         }
@@ -272,8 +281,8 @@ const app = application.create('#viewport', {
             this._advRenderer.render();
         });
         const light = app.createDirectionalLight([-1, -1, -1], '#fff');
-        light.shadowResolution = 1024;
-        light.shadowBias = 0.0005;
+        light.shadowResolution = 2048;
+        light.shadowBias = FLAT ? 0.01 : 0.0005;
 
         this._control = new plugin.OrbitControl({
             target: camera,
@@ -283,6 +292,9 @@ const app = application.create('#viewport', {
             orthographicAspect: app.renderer.getViewportAspect(),
             minAlpha: 45,
             maxAlpha: 45
+        });
+        this._control.setOption({
+            beta: 30
         });
         this._control.on('update', () => {
             this._advRenderer.render();
@@ -334,8 +346,38 @@ const app = application.create('#viewport', {
             this._advRenderer.render();
         },
 
-        updateEarthPlane() {
+        updateEarthPlane(app, rect) {
+            this._earthNode.removeAll();
+            const earthMat = app.createMaterial({
+                roughness: 1,
+                color: config.earthColor,
+                diffuseMap: this._diffuseTex,
+                uvRepeat: [2, 2]
+            });
+            earthMat.name = 'mat_earth';
 
+            const coords = [
+                [rect.x, rect.y],
+                [rect.x + rect.width, rect.y],
+                [rect.x + rect.width, rect.y + rect.height],
+                [rect.x, rect.y + rect.height]
+            ];
+
+            const {position, uv, normal, indices} = extrudePolygon(
+                [[coords]], {
+                    depth: 10,
+                    bevelSize: 1
+                }
+            );
+            const geo = new Geometry();
+            geo.attributes.position.value = position;
+            geo.attributes.normal.value = normal;
+            geo.attributes.texcoord0.value = uv;
+            geo.indices = indices;
+            geo.updateBoundingBox();
+            const mesh = app.createMesh(geo, earthMat, this._earthNode);
+            mesh.rotation.rotateX(-Math.PI / 2);
+            mesh.position.y = -10;
         },
 
         updateElements(app) {
@@ -360,8 +402,7 @@ const app = application.create('#viewport', {
                 const result = extrudeGeoJSON({features: features}, {
                     lineWidth: 0.5,
                     excludeBottom: true,
-                    // bevelSize: elConfig.type === 'buildings' ? 0.2: 0,
-                    simplify: elConfig.type === 'buildings' ? 0.01 : 0,
+                    simplify: (FLAT || elConfig.type === 'buildings') ? 0.01 : 0,
                     depth: elConfig.depth
                 });
                 const poly = result[elConfig.geometryType];
@@ -433,6 +474,8 @@ const app = application.create('#viewport', {
                     geo.generateVertexNormals();
                     geo.updateBoundingBox();
                 }
+
+                return {boundingRect: poly.boundingRect};
             }
 
             let tiles = mainLayer.getTiles().tileGrids[0].tiles;
@@ -440,6 +483,7 @@ const app = application.create('#viewport', {
             if (FLAT) {
                 tiles = [tiles[Math.floor(tiles.length / 2)]];
             }
+            let loading = Math.min(tiles.length, 6);
             tiles.forEach((tile, idx) => {
                 const fetchId = this._id;
                 if (idx >= 6) {
@@ -447,11 +491,21 @@ const app = application.create('#viewport', {
                 }
 
                 const extent = tile.extent2d.convertTo(c => map.pointToCoord(c)).toJSON();
-                const scale = 2e4;
-                const boundingRect = {
-                    x: 0, y: 0,
-                    width: (extent.xmax - extent.xmin) * scale,
-                    height: (extent.ymax - extent.ymin) * scale
+                const scaleX = 1e4;
+                const scaleY = scaleX * 1.4;
+                const width = (extent.xmax - extent.xmin) * scaleX;
+                const height = (extent.ymax - extent.ymin) * scaleY;
+                const tileRect = {
+                    x: FLAT ? -width / 2 : 0,
+                    y: FLAT ? -height / 2 : 0,
+                    width: width,
+                    height: height
+                };
+                const allBoundingRect = {
+                    x: Infinity,
+                    y: Infinity,
+                    width: -Infinity,
+                    height: -Infinity
                 };
 
                 const url = mvtUrlTpl.replace('{z}', tile.z)
@@ -496,7 +550,7 @@ const app = application.create('#viewport', {
                                     feature, FLAT
                                         ? [-(extent.xmax + extent.xmin) / 2, -(extent.ymax + extent.ymin) / 2]
                                         : [-extent.xmin, -extent.ymin]
-                                    , [scale, scale * 1.4]
+                                    , [scaleX, scaleY]
                                 );
                                 features[type].push(feature);
                             }
@@ -515,11 +569,17 @@ const app = application.create('#viewport', {
 
                         mvtCache.set(url, features);
                         for (let key in features) {
-                            createElementMesh(
+                            const {boundingRect} = createElementMesh(
                                 vectorElements.find(config => config.type === key),
                                 features[key],
-                                boundingRect, idx
+                                tileRect, idx
                             );
+                            unionRect(allBoundingRect, boundingRect, allBoundingRect);
+                        }
+
+                        loading--;
+                        if (loading === 0) {
+                            app.methods.updateEarthPlane(allBoundingRect);
                         }
 
                         app.methods.render();
@@ -595,10 +655,13 @@ const app = application.create('#viewport', {
                 cloudMesh.height = Math.random() * 10 + 20;
                 if (FLAT) {
                     cloudMesh.position.setArray([
-                        (Math.random() - 0.5) * 100,
-                        Math.random() * 10 + 30,
-                        (Math.random() - 0.5) * 100
+                        (Math.random() - 0.5) * 60,
+                        Math.random() * 10 + 25,
+                        (Math.random() - 0.5) * 60
                     ]);
+                    if (FLAT) {
+                        cloudMesh.scale.set(0.6, 0.6, 0.6);
+                    }
                 }
                 else {
                     cloudMesh.position.setArray(randomInSphere(config.radius / Math.sqrt(2) + cloudMesh.height));
