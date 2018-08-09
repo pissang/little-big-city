@@ -72,6 +72,34 @@ body {
     color: #111;
 }
 
+nav {
+    position: absolute;
+    left: 20px;
+    top: 20px;
+}
+
+nav ul {
+    margin: 0;
+    padding: 0;
+}
+
+nav li {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    margin-right: 20px;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+    float: left;
+}
+
+nav li:hover {
+    transform: scale(1.1);
+}
+nav li img {
+    width: 100px;
+}
+
 .pace {
     -webkit-pointer-events: none;
     pointer-events: none;

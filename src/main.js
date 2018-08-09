@@ -28,9 +28,9 @@ const maptalks = require('maptalks');
 
 let downloading = false;
 
-const FLAT = true;
+const ISOMETRIC = location.search.slice(1).toLocaleLowerCase() === 'isometric';
 
-// const TILE_SIZE = FLAT ? 512 : 256;
+// const TILE_SIZE = ISOMETRIC ? 512 : 256;
 const TILE_SIZE = 256;
 
 const config = {
@@ -238,8 +238,8 @@ const app = application.create('#viewport', {
             blurSize: 3
         });
 
-        const camera = app.createCamera([0, 0, 170], [0, 0, 0], FLAT ? 'ortho' : 'perspective');
-        if (FLAT) {
+        const camera = app.createCamera([0, 0, 170], [0, 0, 0], ISOMETRIC ? 'ortho' : 'perspective');
+        if (ISOMETRIC) {
             camera.top = 50;
             camera.bottom = -50;
             camera.near = 0;
@@ -259,7 +259,7 @@ const app = application.create('#viewport', {
 
         vectorElements.forEach(el => {
             this._elementsNodes[el.type] = app.createNode();
-            if (FLAT) {
+            if (ISOMETRIC) {
                 this._elementsNodes[el.type].rotation.rotateX(-Math.PI / 2);
             }
             this._elementsMaterials[el.type] = app.createMaterial({
@@ -282,25 +282,28 @@ const app = application.create('#viewport', {
         });
         const light = app.createDirectionalLight([-1, -1, -1], '#fff');
         light.shadowResolution = 2048;
-        light.shadowBias = FLAT ? 0.01 : 0.0005;
+        light.shadowBias = ISOMETRIC ? 0.01 : 0.0005;
 
         this._control = new plugin.OrbitControl({
             target: camera,
             domElement: app.container,
             timeline: app.timeline,
             rotateSensitivity: 2,
-            orthographicAspect: app.renderer.getViewportAspect(),
-            minAlpha: 45,
-            maxAlpha: 45
+            orthographicAspect: app.renderer.getViewportAspect()
         });
-        this._control.setOption({
-            beta: 30
-        });
+        if (ISOMETRIC) {
+            this._control.setOption({
+                beta: 30,
+                alpha: 45,
+                minAlpha: 30,
+                maxAlpha: 60
+            });
+        }
         this._control.on('update', () => {
             this._advRenderer.render();
         });
 
-        if (!FLAT) {
+        if (!ISOMETRIC) {
             app.methods.updateEarthSphere();
         }
         app.methods.updateElements();
@@ -396,18 +399,18 @@ const app = application.create('#viewport', {
 
             function createElementMesh(elConfig, features, boundingRect, idx) {
 
-                if (!FLAT && elConfig.type === 'roads' || elConfig.type === 'water') {
+                if (!ISOMETRIC && elConfig.type === 'roads' || elConfig.type === 'water') {
                     subdivideLongEdges(features, 4);
                 }
                 const result = extrudeGeoJSON({features: features}, {
                     lineWidth: 0.5,
                     excludeBottom: true,
-                    simplify: (FLAT || elConfig.type === 'buildings') ? 0.01 : 0,
+                    simplify: (ISOMETRIC || elConfig.type === 'buildings') ? 0.01 : 0,
                     depth: elConfig.depth
                 });
                 const poly = result[elConfig.geometryType];
                 const geo = new Geometry();
-                if (!FLAT && elConfig.type === 'water') {
+                if (!ISOMETRIC && elConfig.type === 'water') {
                     const {indices, position} = tessellate(poly.position, poly.indices, 5);
                     poly.indices = indices;
                     poly.position = position;
@@ -425,7 +428,7 @@ const app = application.create('#viewport', {
                         }
                     }
 
-                    if (!FLAT) {
+                    if (!ISOMETRIC) {
                         positionAnimateTo = distortion(
                             poly.position, boundingRect, config.radius, config.curveness, faces[idx]
                         );
@@ -462,7 +465,7 @@ const app = application.create('#viewport', {
                         .start('elasticOut');
                 }
                 else {
-                    if (FLAT) {
+                    if (ISOMETRIC) {
                         geo.attributes.position.value = poly.position;
                     }
                     else {
@@ -480,7 +483,7 @@ const app = application.create('#viewport', {
 
             let tiles = mainLayer.getTiles().tileGrids[0].tiles;
             const subdomains = ['a', 'b', 'c'];
-            if (FLAT) {
+            if (ISOMETRIC) {
                 tiles = [tiles[Math.floor(tiles.length / 2)]];
             }
             let loading = Math.min(tiles.length, 6);
@@ -496,8 +499,8 @@ const app = application.create('#viewport', {
                 const width = (extent.xmax - extent.xmin) * scaleX;
                 const height = (extent.ymax - extent.ymin) * scaleY;
                 const tileRect = {
-                    x: FLAT ? -width / 2 : 0,
-                    y: FLAT ? -height / 2 : 0,
+                    x: ISOMETRIC ? -width / 2 : 0,
+                    y: ISOMETRIC ? -height / 2 : 0,
                     width: width,
                     height: height
                 };
@@ -547,7 +550,7 @@ const app = application.create('#viewport', {
                             for (let i = 0; i < vTile.layers[type].length; i++) {
                                 const feature = vTile.layers[type].feature(i).toGeoJSON(tile.x, tile.y, tile.z);
                                 scaleFeature(
-                                    feature, FLAT
+                                    feature, ISOMETRIC
                                         ? [-(extent.xmax + extent.xmin) / 2, -(extent.ymax + extent.ymin) / 2]
                                         : [-extent.xmin, -extent.ymin]
                                     , [scaleX, scaleY]
@@ -578,8 +581,10 @@ const app = application.create('#viewport', {
                         }
 
                         loading--;
-                        if (loading === 0) {
-                            app.methods.updateEarthPlane(allBoundingRect);
+                        if (ISOMETRIC) {
+                            if (loading === 0) {
+                                app.methods.updateEarthPlane(allBoundingRect);
+                            }
                         }
 
                         app.methods.render();
@@ -588,7 +593,7 @@ const app = application.create('#viewport', {
         },
 
         generateClouds(app) {
-            const cloudNumber = FLAT ? 10 : 15;
+            const cloudNumber = ISOMETRIC ? 10 : 15;
             const pointCount = 100;
             this._cloudsNode.removeAll();
 
@@ -629,7 +634,7 @@ const app = application.create('#viewport', {
                         const pt = randomInSphere(r);
                         points.push(pt);
                         positionArr[off++] = pt[0] + posOff * dist * dx;
-                        if (FLAT) {
+                        if (ISOMETRIC) {
                             positionArr[off++] = pt[1];
                             positionArr[off++] = pt[2] + posOff * dist * dy;
                         }
@@ -653,13 +658,13 @@ const app = application.create('#viewport', {
 
                 const cloudMesh = app.createMesh(geo, cloudMaterial, this._cloudsNode);
                 cloudMesh.height = Math.random() * 10 + 20;
-                if (FLAT) {
+                if (ISOMETRIC) {
                     cloudMesh.position.setArray([
                         (Math.random() - 0.5) * 60,
                         Math.random() * 10 + 25,
                         (Math.random() - 0.5) * 60
                     ]);
-                    if (FLAT) {
+                    if (ISOMETRIC) {
                         cloudMesh.scale.set(0.6, 0.6, 0.6);
                     }
                 }
@@ -717,7 +722,7 @@ const app = application.create('#viewport', {
 });
 
 function updateAll() {
-    if (!FLAT) {
+    if (!ISOMETRIC) {
         app.methods.updateEarthSphere();
     }
     app.methods.updateElements();
@@ -738,7 +743,7 @@ map.on('zoomend', function () {
 });
 
 const ui = new dat.GUI();
-if (!FLAT) {
+if (!ISOMETRIC) {
     ui.add(config, 'radius', 30, 100).step(1).onChange(updateAll);
 }
 ui.add(config, 'autoRotateSpeed', -2, 2).step(0.01).onChange(app.methods.updateAutoRotate);
