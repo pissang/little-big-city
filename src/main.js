@@ -205,6 +205,9 @@ function cullBuildingPolygns(features) {
                 poly
             );
             feature.geometry = PolyBool.polygonToGeoJSON(intersectedPoly);
+            if (!feature.geometry.coordinates.length) {
+                feature.geometry = null;
+            }
         }
     });
 }
@@ -218,8 +221,8 @@ function unionRect(out, a, b) {
     out.height = Math.max(a.height + a.y, b.height + b.y) - y;
 }
 
-const width = 65;
-const height = 65;
+const width = 56;
+const height = 59;
 const earthRect = {
     x: -width / 2,
     y: -height / 2,
