@@ -19,10 +19,9 @@ import JSZip from 'jszip';
 import tessellate from './tessellate';
 import vec2 from 'claygl/src/glmatrix/vec2';
 import PolyBool from 'polybooljs';
-
-const mvtCache = LRU(50);;
-
 import distortion from './distortion';
+
+const mvtCache = LRU(50);
 
 const maptalks = require('maptalks');
 
@@ -38,6 +37,7 @@ const config = {
     curveness: 1,
 
     showEarth: true,
+    earthDepth: 4,
     earthColor: '#c2ebb6',
 
     showBuildings: true,
@@ -195,6 +195,20 @@ function unionComplexPolygons(features) {
     };
 }
 
+function cullBuildingPolygns(features) {
+    const earthCoords = [getRectCoords(earthRect)];
+    features.forEach(feature => {
+        if (feature.geometry && (feature.geometry.type === 'Polygon' || feature.geometry.type === 'MultiPolygon')) {
+            const poly = PolyBool.polygonFromGeoJSON(feature.geometry);
+            const intersectedPoly = PolyBool.intersect(
+                { regions: earthCoords, inverse: false },
+                poly
+            );
+            feature.geometry = PolyBool.polygonToGeoJSON(intersectedPoly);
+        }
+    });
+}
+
 function unionRect(out, a, b) {
     const x = Math.min(a.x, b.x);
     const y = Math.min(a.y, b.y);
@@ -202,6 +216,25 @@ function unionRect(out, a, b) {
     out.y = y;
     out.width = Math.max(a.width + a.x, b.width + b.x) - x;
     out.height = Math.max(a.height + a.y, b.height + b.y) - y;
+}
+
+const width = 65;
+const height = 65;
+const earthRect = {
+    x: -width / 2,
+    y: -height / 2,
+    width: width,
+    height: height
+};
+
+function getRectCoords(rect) {
+    return [
+        [rect.x, rect.y],
+        [rect.x + rect.width, rect.y],
+        [rect.x + rect.width, rect.y + rect.height],
+        [rect.x, rect.y + rect.height],
+        [rect.x, rect.y]
+    ];
 }
 
 const app = application.create('#viewport', {
@@ -293,10 +326,10 @@ const app = application.create('#viewport', {
         });
         if (ISOMETRIC) {
             this._control.setOption({
-                beta: 30,
-                alpha: 45,
-                minAlpha: 30,
-                maxAlpha: 60
+                beta: 45,
+                alpha: 30,
+                minAlpha: 10,
+                maxAlpha: 80
             });
         }
         this._control.on('update', () => {
@@ -349,7 +382,7 @@ const app = application.create('#viewport', {
             this._advRenderer.render();
         },
 
-        updateEarthPlane(app, rect) {
+        updateEarthGround(app, rect) {
             this._earthNode.removeAll();
             const earthMat = app.createMaterial({
                 roughness: 1,
@@ -359,17 +392,10 @@ const app = application.create('#viewport', {
             });
             earthMat.name = 'mat_earth';
 
-            const coords = [
-                [rect.x, rect.y],
-                [rect.x + rect.width, rect.y],
-                [rect.x + rect.width, rect.y + rect.height],
-                [rect.x, rect.y + rect.height]
-            ];
-
             const {position, uv, normal, indices} = extrudePolygon(
-                [[coords]], {
-                    depth: 10,
-                    bevelSize: 1
+                [[getRectCoords(earthRect)]], {
+                    depth: config.earthDepth
+                    // bevelSize: 0.3
                 }
             );
             const geo = new Geometry();
@@ -380,7 +406,9 @@ const app = application.create('#viewport', {
             geo.updateBoundingBox();
             const mesh = app.createMesh(geo, earthMat, this._earthNode);
             mesh.rotation.rotateX(-Math.PI / 2);
-            mesh.position.y = -10;
+            mesh.position.y = -config.earthDepth;
+
+            app.methods.render();
         },
 
         updateElements(app) {
@@ -557,6 +585,10 @@ const app = application.create('#viewport', {
                                 );
                                 features[type].push(feature);
                             }
+
+                            if (ISOMETRIC) {
+                                cullBuildingPolygns(features[type]);
+                            }
                         });
 
                         if (features.water) {
@@ -583,7 +615,7 @@ const app = application.create('#viewport', {
                         loading--;
                         if (ISOMETRIC) {
                             if (loading === 0) {
-                                app.methods.updateEarthPlane(allBoundingRect);
+                                app.methods.updateEarthGround(allBoundingRect);
                             }
                         }
 
@@ -751,6 +783,7 @@ ui.add(config, 'sky').onChange(app.methods.updateSky);
 
 const earthFolder = ui.addFolder('Earth');
 earthFolder.add(config, 'showEarth').onChange(app.methods.updateVisibility);
+earthFolder.add(config, 'earthDepth', 1, 50).onChange(app.methods.updateEarthGround);
 earthFolder.addColor(config, 'earthColor').onChange(app.methods.updateColor);
 
 const buildingsFolder = ui.addFolder('Buildings');
