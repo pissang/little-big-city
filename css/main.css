@@ -75,6 +75,8 @@ body {
 #location {
     padding: 10px 4px;
     font-size:18px;
+    background: #c3d7dd;
+    color: #2e2e2e;
 }
 
 #location input {
