@@ -18,15 +18,23 @@
     <div id="viewport"></div>
     <div id="map">
         <h3>Pan the map to select a new area</h3>
+        <div id="location">
+            <label>LNG</label>
+            <input id="lng" type="text" value="-74.0130345">
+            <label>LAT</label>
+            <input id="lat" type="text" value="40.7063516">
+            <button id="reset">RESET</button>
+            <button id="locate">GO</button>
+        </div>
         <div id="map-main"></div>
     </div>
-    <nav>
+    <nav id="style-list">
         <ul>
-            <li>
-                <a href="./"><img src="asset/planet.jpg" alt=""></a>
+            <li class="planet">
+                <img src="asset/planet.jpg" alt="">
             </li>
-            <li>
-                <a href="./?isometric"><img src="asset/isometric.jpg" alt=""></a>
+            <li class="tile">
+                <img src="asset/isometric.jpg" alt="">
             </li>
         </ul>
     </nav>

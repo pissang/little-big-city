@@ -25,11 +25,31 @@ const mvtCache = LRU(50);
 
 const maptalks = require('maptalks');
 
-let downloading = false;
+const DEFAULT_LNG = -74.0130345;
+const DEFAULT_LAT = 40.7063516;
+const searchStr = location.search.slice(1).toLocaleLowerCase();
+const searchItems = searchStr.split('&');
+const urlOpts = {};
+searchItems.forEach(item => {
+    const arr = item.split('=');
+    const key = arr[0];
+    const val = arr[1] || true;
+    urlOpts[key] = val;
+});
+urlOpts.lng = urlOpts.lng || DEFAULT_LNG;
+urlOpts.lat = urlOpts.lat || DEFAULT_LAT;
 
-const ISOMETRIC = location.search.slice(1).toLocaleLowerCase() === 'isometric';
+function makeUrl() {
+    const urlItems = [];
+    for (let key in urlOpts) {
+        urlItems.push(key + '=' + urlOpts[key]);
+    }
+    return './?' + urlItems.join('&');
+}
 
-// const TILE_SIZE = ISOMETRIC ? 512 : 256;
+const IS_TILE_STYLE = urlOpts.style === 'tile';
+
+// const TILE_SIZE = IS_TILE_STYLE ? 512 : 256;
 const TILE_SIZE = 256;
 
 const config = {
@@ -54,27 +74,30 @@ const config = {
 
     autoRotateSpeed: 0,
     sky: true,
-    downloadOBJ: () => {
-        if (downloading) {
-            return;
-        }
-        const {obj, mtl} = toOBJ(app.scene, {
-            mtllib: 'city'
-        });
-        const zip = new JSZip();
-        zip.file('city.obj', obj);
-        zip.file('city.mtl', mtl);
-        zip.generateAsync({type: 'blob', compression: 'DEFLATE' })
-            .then(content => {
-                downloading = false;
-                saveAs(content, 'city.zip');
-            }).catch(e => {
-                downloading = false;
-                console.error(e.toString());
+    downloadOBJ: (() => {
+        let downloading = false;
+        return () => {
+            if (downloading) {
+                return;
+            }
+            const {obj, mtl} = toOBJ(app.scene, {
+                mtllib: 'city'
             });
-        // Behind all processing in case some errror happens.
-        downloading = true;
-    },
+            const zip = new JSZip();
+            zip.file('city.obj', obj);
+            zip.file('city.mtl', mtl);
+            zip.generateAsync({type: 'blob', compression: 'DEFLATE' })
+                .then(content => {
+                    downloading = false;
+                    saveAs(content, 'city.zip');
+                }).catch(e => {
+                    downloading = false;
+                    console.error(e.toString());
+                });
+            // Behind all processing in case some errror happens.
+            downloading = true;
+        };
+    })(),
     randomCloud: () => {
         app.methods.generateClouds();
     }
@@ -90,7 +113,7 @@ const mainLayer = new maptalks.TileLayer('base', {
 const map = new maptalks.Map('map-main', {
     // center: [-0.113049, 51.498568],
     // center: [-73.97332, 40.76462],
-    center: [-74.0130345, 40.70635160000003],
+    center: [urlOpts.lng, urlOpts.lat],
     zoom: 16,
     baseLayer: mainLayer
 });
@@ -221,8 +244,8 @@ function unionRect(out, a, b) {
     out.height = Math.max(a.height + a.y, b.height + b.y) - y;
 }
 
-const width = 56;
-const height = 59;
+const width = 55;
+const height = 58.5;
 const earthRect = {
     x: -width / 2,
     y: -height / 2,
@@ -274,8 +297,8 @@ const app = application.create('#viewport', {
             blurSize: 3
         });
 
-        const camera = app.createCamera([0, 0, 170], [0, 0, 0], ISOMETRIC ? 'ortho' : 'perspective');
-        if (ISOMETRIC) {
+        const camera = app.createCamera([0, 0, 170], [0, 0, 0], IS_TILE_STYLE ? 'ortho' : 'perspective');
+        if (IS_TILE_STYLE) {
             camera.top = 50;
             camera.bottom = -50;
             camera.near = 0;
@@ -295,7 +318,7 @@ const app = application.create('#viewport', {
 
         vectorElements.forEach(el => {
             this._elementsNodes[el.type] = app.createNode();
-            if (ISOMETRIC) {
+            if (IS_TILE_STYLE) {
                 this._elementsNodes[el.type].rotation.rotateX(-Math.PI / 2);
             }
             this._elementsMaterials[el.type] = app.createMaterial({
@@ -318,7 +341,7 @@ const app = application.create('#viewport', {
         });
         const light = app.createDirectionalLight([-1, -1, -1], '#fff');
         light.shadowResolution = 2048;
-        light.shadowBias = ISOMETRIC ? 0.01 : 0.0005;
+        light.shadowBias = IS_TILE_STYLE ? 0.01 : 0.0005;
 
         this._control = new plugin.OrbitControl({
             target: camera,
@@ -327,7 +350,7 @@ const app = application.create('#viewport', {
             rotateSensitivity: 2,
             orthographicAspect: app.renderer.getViewportAspect()
         });
-        if (ISOMETRIC) {
+        if (IS_TILE_STYLE) {
             this._control.setOption({
                 beta: 45,
                 alpha: 30,
@@ -339,7 +362,7 @@ const app = application.create('#viewport', {
             this._advRenderer.render();
         });
 
-        if (!ISOMETRIC) {
+        if (!IS_TILE_STYLE) {
             app.methods.updateEarthSphere();
         }
         app.methods.updateElements();
@@ -409,7 +432,7 @@ const app = application.create('#viewport', {
             geo.updateBoundingBox();
             const mesh = app.createMesh(geo, earthMat, this._earthNode);
             mesh.rotation.rotateX(-Math.PI / 2);
-            mesh.position.y = -config.earthDepth;
+            mesh.position.y = -config.earthDepth + 0.1;
 
             app.methods.render();
         },
@@ -430,18 +453,18 @@ const app = application.create('#viewport', {
 
             function createElementMesh(elConfig, features, boundingRect, idx) {
 
-                if (!ISOMETRIC && elConfig.type === 'roads' || elConfig.type === 'water') {
+                if (!IS_TILE_STYLE && elConfig.type === 'roads' || elConfig.type === 'water') {
                     subdivideLongEdges(features, 4);
                 }
                 const result = extrudeGeoJSON({features: features}, {
                     lineWidth: 0.5,
                     excludeBottom: true,
-                    simplify: (ISOMETRIC || elConfig.type === 'buildings') ? 0.01 : 0,
+                    simplify: (IS_TILE_STYLE || elConfig.type === 'buildings') ? 0.01 : 0,
                     depth: elConfig.depth
                 });
                 const poly = result[elConfig.geometryType];
                 const geo = new Geometry();
-                if (!ISOMETRIC && elConfig.type === 'water') {
+                if (!IS_TILE_STYLE && elConfig.type === 'water') {
                     const {indices, position} = tessellate(poly.position, poly.indices, 5);
                     poly.indices = indices;
                     poly.position = position;
@@ -459,7 +482,7 @@ const app = application.create('#viewport', {
                         }
                     }
 
-                    if (!ISOMETRIC) {
+                    if (!IS_TILE_STYLE) {
                         positionAnimateTo = distortion(
                             poly.position, boundingRect, config.radius, config.curveness, faces[idx]
                         );
@@ -496,7 +519,7 @@ const app = application.create('#viewport', {
                         .start('elasticOut');
                 }
                 else {
-                    if (ISOMETRIC) {
+                    if (IS_TILE_STYLE) {
                         geo.attributes.position.value = poly.position;
                     }
                     else {
@@ -514,8 +537,13 @@ const app = application.create('#viewport', {
 
             let tiles = mainLayer.getTiles().tileGrids[0].tiles;
             const subdomains = ['a', 'b', 'c'];
-            if (ISOMETRIC) {
-                tiles = [tiles[Math.floor(tiles.length / 2)]];
+            if (IS_TILE_STYLE) {
+                const center = map.getCenter();
+                tiles = tiles.filter(tile => {
+                    const extent = tile.extent2d.convertTo(c => map.pointToCoord(c)).toJSON();
+                    return extent.xmax > center.x && extent.xmin < center.x
+                        && extent.ymax > center.y && extent.ymin < center.y;
+                });
             }
             let loading = Math.min(tiles.length, 6);
             tiles.forEach((tile, idx) => {
@@ -523,15 +551,15 @@ const app = application.create('#viewport', {
                 if (idx >= 6) {
                     return;
                 }
-
                 const extent = tile.extent2d.convertTo(c => map.pointToCoord(c)).toJSON();
+
                 const scaleX = 1e4;
                 const scaleY = scaleX * 1.4;
                 const width = (extent.xmax - extent.xmin) * scaleX;
                 const height = (extent.ymax - extent.ymin) * scaleY;
                 const tileRect = {
-                    x: ISOMETRIC ? -width / 2 : 0,
-                    y: ISOMETRIC ? -height / 2 : 0,
+                    x: IS_TILE_STYLE ? -width / 2 : 0,
+                    y: IS_TILE_STYLE ? -height / 2 : 0,
                     width: width,
                     height: height
                 };
@@ -581,7 +609,7 @@ const app = application.create('#viewport', {
                             for (let i = 0; i < vTile.layers[type].length; i++) {
                                 const feature = vTile.layers[type].feature(i).toGeoJSON(tile.x, tile.y, tile.z);
                                 scaleFeature(
-                                    feature, ISOMETRIC
+                                    feature, IS_TILE_STYLE
                                         ? [-(extent.xmax + extent.xmin) / 2, -(extent.ymax + extent.ymin) / 2]
                                         : [-extent.xmin, -extent.ymin]
                                     , [scaleX, scaleY]
@@ -589,7 +617,7 @@ const app = application.create('#viewport', {
                                 features[type].push(feature);
                             }
 
-                            if (ISOMETRIC) {
+                            if (IS_TILE_STYLE) {
                                 cullBuildingPolygns(features[type]);
                             }
                         });
@@ -616,7 +644,7 @@ const app = application.create('#viewport', {
                         }
 
                         loading--;
-                        if (ISOMETRIC) {
+                        if (IS_TILE_STYLE) {
                             if (loading === 0) {
                                 app.methods.updateEarthGround(allBoundingRect);
                             }
@@ -628,7 +656,7 @@ const app = application.create('#viewport', {
         },
 
         generateClouds(app) {
-            const cloudNumber = ISOMETRIC ? 10 : 15;
+            const cloudNumber = IS_TILE_STYLE ? 10 : 15;
             const pointCount = 100;
             this._cloudsNode.removeAll();
 
@@ -669,7 +697,7 @@ const app = application.create('#viewport', {
                         const pt = randomInSphere(r);
                         points.push(pt);
                         positionArr[off++] = pt[0] + posOff * dist * dx;
-                        if (ISOMETRIC) {
+                        if (IS_TILE_STYLE) {
                             positionArr[off++] = pt[1];
                             positionArr[off++] = pt[2] + posOff * dist * dy;
                         }
@@ -693,13 +721,13 @@ const app = application.create('#viewport', {
 
                 const cloudMesh = app.createMesh(geo, cloudMaterial, this._cloudsNode);
                 cloudMesh.height = Math.random() * 10 + 20;
-                if (ISOMETRIC) {
+                if (IS_TILE_STYLE) {
                     cloudMesh.position.setArray([
                         (Math.random() - 0.5) * 60,
                         Math.random() * 10 + 25,
                         (Math.random() - 0.5) * 60
                     ]);
-                    if (ISOMETRIC) {
+                    if (IS_TILE_STYLE) {
                         cloudMesh.scale.set(0.6, 0.6, 0.6);
                     }
                 }
@@ -757,18 +785,25 @@ const app = application.create('#viewport', {
 });
 
 function updateAll() {
-    if (!ISOMETRIC) {
+    if (!IS_TILE_STYLE) {
         app.methods.updateEarthSphere();
     }
     app.methods.updateElements();
 }
+
 
 let timeout;
 map.on('moveend', function () {
     clearTimeout(timeout);
     timeout = setTimeout(function () {
         app.methods.updateElements();
+        history.pushState('', '', makeUrl());
     }, 500);
+});
+map.on('moving', function () {
+    const center = map.getCenter();
+    urlOpts.lng = document.querySelector('#lng').value = center.x;
+    urlOpts.lat = document.querySelector('#lat').value = center.y;
 });
 map.on('zoomend', function () {
     clearTimeout(timeout);
@@ -777,8 +812,31 @@ map.on('zoomend', function () {
     }, 500);
 });
 
+Array.prototype.forEach.call(document.querySelectorAll('#style-list li'), li => {
+    li.addEventListener('click', () => {
+        urlOpts.style = li.className;
+        window.location = makeUrl();
+    });
+});
+
+document.querySelector('#locate').addEventListener('click', () => {
+    urlOpts.lng = +document.querySelector('#lng').value;
+    urlOpts.lat = +document.querySelector('#lat').value;
+    map.setCenter({x: urlOpts.lng, y: urlOpts.lat});
+    app.methods.updateElements();
+    history.pushState('', '', makeUrl());
+});
+
+document.querySelector('#reset').addEventListener('click', () => {
+    urlOpts.lng = document.querySelector('#lng').value = DEFAULT_LNG;
+    urlOpts.lat = document.querySelector('#lat').value = DEFAULT_LAT;
+    map.setCenter({x: urlOpts.lng, y: urlOpts.lat});
+    app.methods.updateElements();
+    history.pushState('', '', makeUrl());
+});
+
 const ui = new dat.GUI();
-if (!ISOMETRIC) {
+if (!IS_TILE_STYLE) {
     ui.add(config, 'radius', 30, 100).step(1).onChange(updateAll);
 }
 ui.add(config, 'autoRotateSpeed', -2, 2).step(0.01).onChange(app.methods.updateAutoRotate);
