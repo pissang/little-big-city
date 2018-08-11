@@ -27,32 +27,8 @@ const maptalks = require('maptalks');
 
 const DEFAULT_LNG = -74.0130345;
 const DEFAULT_LAT = 40.7063516;
-const searchStr = location.search.slice(1).toLocaleLowerCase();
-const searchItems = searchStr.split('&');
-const urlOpts = {};
-searchItems.forEach(item => {
-    const arr = item.split('=');
-    const key = arr[0];
-    const val = arr[1] || true;
-    urlOpts[key] = val;
-});
-urlOpts.lng = urlOpts.lng || DEFAULT_LNG;
-urlOpts.lat = urlOpts.lat || DEFAULT_LAT;
 
-function makeUrl() {
-    const urlItems = [];
-    for (let key in urlOpts) {
-        urlItems.push(key + '=' + urlOpts[key]);
-    }
-    return './?' + urlItems.join('&');
-}
-
-const IS_TILE_STYLE = urlOpts.style === 'tile';
-
-// const TILE_SIZE = IS_TILE_STYLE ? 512 : 256;
-const TILE_SIZE = 256;
-
-const config = {
+const DEFAULT_CONFIG = {
     radius: 60,
     curveness: 1,
 
@@ -72,8 +48,50 @@ const config = {
     showCloud: true,
     cloudColor: '#fff',
 
-    autoRotateSpeed: 0,
-    sky: true,
+    rotateSpeed: 0,
+    sky: true
+};
+
+const searchStr = location.search.slice(1);
+const searchItems = searchStr.split('&');
+const urlOpts = {};
+searchItems.forEach(item => {
+    const arr = item.split('=');
+    const key = arr[0];
+    const val = arr[1] || true;
+    urlOpts[key] = val;
+});
+urlOpts.lng = urlOpts.lng || DEFAULT_LNG;
+urlOpts.lat = urlOpts.lat || DEFAULT_LAT;
+
+function makeUrl() {
+    const diffConfig = {};
+    for (let key in config) {
+        if (config[key] !== DEFAULT_CONFIG[key]) {
+            diffConfig[key] = config[key];
+        }
+    }
+    urlOpts.config = encodeURIComponent(JSON.stringify(diffConfig));
+
+    const urlItems = [];
+    for (let key in urlOpts) {
+        urlItems.push(key + '=' + urlOpts[key]);
+    }
+    return './?' + urlItems.join('&');
+}
+
+const IS_TILE_STYLE = urlOpts.style === 'tile';
+
+// const TILE_SIZE = IS_TILE_STYLE ? 512 : 256;
+const TILE_SIZE = 256;
+
+const config = Object.assign({}, DEFAULT_CONFIG);
+try {
+    Object.assign(config, JSON.parse(decodeURIComponent(urlOpts.config || '{}')));
+}
+catch (e) {}
+
+const actions = {
     downloadOBJ: (() => {
         let downloading = false;
         return () => {
@@ -100,6 +118,11 @@ const config = {
     })(),
     randomCloud: () => {
         app.methods.generateClouds();
+    },
+    reset: () => {
+        Object.assign(config, DEFAULT_CONFIG);
+        ui.updateDisplay();
+        window.location = makeUrl();
     }
 };
 
@@ -301,9 +324,12 @@ const app = application.create('#viewport', {
         if (IS_TILE_STYLE) {
             camera.top = 50;
             camera.bottom = -50;
+            camera.left = -50 * app.renderer.getViewportAspect();
+            camera.right = 50 * app.renderer.getViewportAspect();
             camera.near = 0;
             camera.far = 1000;
         }
+        camera.update();
         this._camera = camera;
 
         this._earthNode = app.createNode();
@@ -330,15 +356,6 @@ const app = application.create('#viewport', {
             this._elementsMaterials[el.type].name = 'mat_' + el.type;
         });
 
-        app.createAmbientCubemapLight('./asset/Grand_Canyon_C.hdr', 0.2, 0.8, 1).then(result => {
-            const skybox = new plugin.Skybox({
-                environmentMap: result.specular.cubemap,
-                scene: app.scene
-            });
-            skybox.material.set('lod', 2);
-            this._skybox = skybox;
-            this._advRenderer.render();
-        });
         const light = app.createDirectionalLight([-1, -1, -1], '#fff');
         light.shadowResolution = 2048;
         light.shadowBias = IS_TILE_STYLE ? 0.01 : 0.0005;
@@ -370,6 +387,17 @@ const app = application.create('#viewport', {
         app.methods.generateClouds();
 
         this._advRenderer.render();
+
+
+        return app.createAmbientCubemapLight('./asset/Grand_Canyon_C.hdr', 0.2, 0.8, 1).then(result => {
+            const skybox = new plugin.Skybox({
+                environmentMap: result.specular.cubemap,
+                scene: app.scene
+            });
+            skybox.material.set('lod', 2);
+            this._skybox = skybox;
+            this._advRenderer.render();
+        });
     },
 
     methods: {
@@ -762,8 +790,8 @@ const app = application.create('#viewport', {
         },
 
         updateAutoRotate() {
-            this._control.autoRotateSpeed = config.autoRotateSpeed * 50;
-            this._control.autoRotate = Math.abs(config.autoRotateSpeed) > 0.3;
+            this._control.rotateSpeed = config.rotateSpeed * 50;
+            this._control.autoRotate = Math.abs(config.rotateSpeed) > 0.3;
         },
 
         updateSky(app) {
@@ -791,13 +819,16 @@ function updateAll() {
     app.methods.updateElements();
 }
 
+function updateUrlState() {
+    history.pushState('', '', makeUrl());
+}
 
 let timeout;
 map.on('moveend', function () {
     clearTimeout(timeout);
     timeout = setTimeout(function () {
         app.methods.updateElements();
-        history.pushState('', '', makeUrl());
+        updateUrlState();
     }, 500);
 });
 map.on('moving', function () {
@@ -824,7 +855,7 @@ document.querySelector('#locate').addEventListener('click', () => {
     urlOpts.lat = +document.querySelector('#lat').value;
     map.setCenter({x: urlOpts.lng, y: urlOpts.lat});
     app.methods.updateElements();
-    history.pushState('', '', makeUrl());
+    updateUrlState();
 });
 
 document.querySelector('#reset').addEventListener('click', () => {
@@ -832,38 +863,41 @@ document.querySelector('#reset').addEventListener('click', () => {
     urlOpts.lat = document.querySelector('#lat').value = DEFAULT_LAT;
     map.setCenter({x: urlOpts.lng, y: urlOpts.lat});
     app.methods.updateElements();
-    history.pushState('', '', makeUrl());
+    updateUrlState();
 });
 
 const ui = new dat.GUI();
+ui.add(actions, 'reset');
 if (!IS_TILE_STYLE) {
-    ui.add(config, 'radius', 30, 100).step(1).onChange(updateAll);
+    ui.add(config, 'radius', 30, 100).step(1).onChange(updateAll).onFinishChange(updateUrlState);
 }
-ui.add(config, 'autoRotateSpeed', -2, 2).step(0.01).onChange(app.methods.updateAutoRotate);
-ui.add(config, 'sky').onChange(app.methods.updateSky);
+ui.add(config, 'rotateSpeed', -2, 2).step(0.01).onChange(app.methods.updateAutoRotate).onFinishChange(updateUrlState);
+ui.add(config, 'sky').onChange(app.methods.updateSky).onFinishChange(updateUrlState);
 
 const earthFolder = ui.addFolder('Earth');
-earthFolder.add(config, 'showEarth').onChange(app.methods.updateVisibility);
-earthFolder.add(config, 'earthDepth', 1, 50).onChange(app.methods.updateEarthGround);
-earthFolder.addColor(config, 'earthColor').onChange(app.methods.updateColor);
+earthFolder.add(config, 'showEarth').onChange(app.methods.updateVisibility).onFinishChange(updateUrlState);
+if (IS_TILE_STYLE) {
+    earthFolder.add(config, 'earthDepth', 1, 50).onChange(app.methods.updateEarthGround).onFinishChange(updateUrlState);
+}
+earthFolder.addColor(config, 'earthColor').onChange(app.methods.updateColor).onFinishChange(updateUrlState);
 
 const buildingsFolder = ui.addFolder('Buildings');
-buildingsFolder.add(config, 'showBuildings').onChange(app.methods.updateVisibility);
-buildingsFolder.addColor(config, 'buildingsColor').onChange(app.methods.updateColor);
+buildingsFolder.add(config, 'showBuildings').onChange(app.methods.updateVisibility).onFinishChange(updateUrlState);
+buildingsFolder.addColor(config, 'buildingsColor').onChange(app.methods.updateColor).onFinishChange(updateUrlState);
 
 const roadsFolder = ui.addFolder('Roads');
-roadsFolder.add(config, 'showRoads').onChange(app.methods.updateVisibility);
-roadsFolder.addColor(config, 'roadsColor').onChange(app.methods.updateColor);
+roadsFolder.add(config, 'showRoads').onChange(app.methods.updateVisibility).onFinishChange(updateUrlState);
+roadsFolder.addColor(config, 'roadsColor').onChange(app.methods.updateColor).onFinishChange(updateUrlState);
 
 const waterFolder = ui.addFolder('Water');
-waterFolder.add(config, 'showWater').onChange(app.methods.updateVisibility);
-waterFolder.addColor(config, 'waterColor').onChange(app.methods.updateColor);
+waterFolder.add(config, 'showWater').onChange(app.methods.updateVisibility).onFinishChange(updateUrlState);
+waterFolder.addColor(config, 'waterColor').onChange(app.methods.updateColor).onFinishChange(updateUrlState);
 
 const cloudFolder = ui.addFolder('Cloud');
-cloudFolder.add(config, 'showCloud').onChange(app.methods.updateVisibility);
-cloudFolder.addColor(config, 'cloudColor').onChange(app.methods.updateColor);
-cloudFolder.add(config, 'randomCloud');
+cloudFolder.add(config, 'showCloud').onChange(app.methods.updateVisibility).onFinishChange(updateUrlState);
+cloudFolder.addColor(config, 'cloudColor').onChange(app.methods.updateColor).onFinishChange(updateUrlState);
+cloudFolder.add(actions, 'randomCloud');
 
-ui.add(config, 'downloadOBJ');
+ui.add(actions, 'downloadOBJ');
 
 window.addEventListener('resize', () => { app.resize(); app.methods.render(); });
