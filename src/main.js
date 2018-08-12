@@ -438,13 +438,6 @@ const app = application.create('#viewport', {
 
         updateEarthGround(app, rect) {
             this._earthNode.removeAll();
-            const earthMat = app.createMaterial({
-                roughness: 1,
-                color: config.earthColor,
-                diffuseMap: this._diffuseTex,
-                uvRepeat: [2, 2]
-            });
-            earthMat.name = 'mat_earth';
 
             const {position, uv, normal, indices} = extrudePolygon(
                 [[getRectCoords(earthRect)]], {
@@ -458,7 +451,13 @@ const app = application.create('#viewport', {
             geo.attributes.texcoord0.value = uv;
             geo.indices = indices;
             geo.updateBoundingBox();
-            const mesh = app.createMesh(geo, earthMat, this._earthNode);
+            const mesh = app.createMesh(geo, {
+                nmae: 'mat_earth',
+                roughness: 1,
+                color: config.earthColor,
+                diffuseMap: this._diffuseTex,
+                uvRepeat: [2, 2]
+            }, this._earthNode);
             mesh.rotation.rotateX(-Math.PI / 2);
             mesh.position.y = -config.earthDepth + 0.1;
 
@@ -689,7 +688,8 @@ const app = application.create('#viewport', {
             this._cloudsNode.removeAll();
 
             const cloudMaterial = app.createMaterial({
-                roughness: 1
+                roughness: 1,
+                color: config.cloudColor
             });
             cloudMaterial.name = 'mat_cloud';
 
