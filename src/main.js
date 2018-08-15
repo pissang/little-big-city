@@ -130,7 +130,7 @@ const mvtUrlTpl = `https://{s}.tile.nextzen.org/tilezen/vector/v1/${TILE_SIZE}/a
 
 const mainLayer = new maptalks.TileLayer('base', {
     tileSize: [TILE_SIZE, TILE_SIZE],
-    urlTemplate: 'http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     subdomains: ['a', 'b', 'c']
 });
 const map = new maptalks.Map('map-main', {
