@@ -611,6 +611,8 @@ const app = application.create('#viewport', {
                             tile, idx
                         );
                     }
+
+                    return;
                 }
 
                 return fetch(url, {
