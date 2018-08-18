@@ -286,6 +286,24 @@ function getRectCoords(rect) {
     ];
 }
 
+function convertBWToAlpha(img) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0, img.width, img.height);
+    const imgData = ctx.getImageData(0, 0, img.width, img.height);
+    for (let i = 0; i < imgData.data.length; i += 4) {
+        if (imgData.data[i] < 128) {
+            imgData.data[i + 3] = 0;
+        }
+        imgData.data[i] = imgData.data[i + 1] = imgData.data[i + 2] = 255;
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    return canvas;
+}
+
 const app = application.create('#viewport', {
 
     autoRender: false,
@@ -315,6 +333,7 @@ const app = application.create('#viewport', {
                 }
             }
         });
+
         this._advRenderer.setShadow({
             kernelSize: 10,
             blurSize: 3
@@ -338,27 +357,43 @@ const app = application.create('#viewport', {
         this._elementsNodes = {};
         this._elementsMaterials = {};
 
-        this._diffuseTex = app.loadTextureSync('./asset/paper-detail.png', {
-            anisotropic: 8
-        });
+        // this._diffuseTex = app.loadTextureSync('./asset/paper-detail.png', {
+        //     anisotropic: 8
+        // });
+
+        const img = new Image();
+        const texture = new Texture2D();
+        this._diffuseTex = texture;
+        img.onload = function () {
+            const canvas = convertBWToAlpha(img);
+            texture.image = canvas;
+            texture.dirty();
+        };
+        img.src = './asset/papercut-pattern.jpg';
 
         vectorElements.forEach(el => {
             this._elementsNodes[el.type] = app.createNode();
             if (IS_TILE_STYLE) {
                 this._elementsNodes[el.type].rotation.rotateX(-Math.PI / 2);
             }
-            this._elementsMaterials[el.type] = app.createMaterial({
+            const material = this._elementsMaterials[el.type] = app.createMaterial({
+                name: 'mat_' + el.type,
                 diffuseMap: this._diffuseTex,
-                uvRepeat: [10, 10],
+                uvRepeat: [3, 3],
                 color: config[el.type + 'Color'],
                 roughness: 1
             });
-            this._elementsMaterials[el.type].name = 'mat_' + el.type;
+            material.define('fragment', 'ALPHA_TEST');
+            material.set('alphaCutoff', 0.5);
         });
 
         const light = app.createDirectionalLight([-1, -1, -1], '#fff');
         light.shadowResolution = 2048;
         light.shadowBias = IS_TILE_STYLE ? 0.01 : 0.0005;
+
+        // const pointLight = app.createPointLight([0, 10, 0], 200, '#530', 3);
+        // pointLight.castShadow = true;
+        // pointLight.shadowResolution = 2048;
 
         this._control = new plugin.OrbitControl({
             target: camera,
@@ -455,13 +490,25 @@ const app = application.create('#viewport', {
                 nmae: 'mat_earth',
                 roughness: 1,
                 color: config.earthColor,
-                diffuseMap: this._diffuseTex,
+                // diffuseMap: this._diffuseTex,
                 uvRepeat: [2, 2]
             }, this._earthNode);
             mesh.rotation.rotateX(-Math.PI / 2);
             mesh.position.y = -config.earthDepth + 0.1;
 
             app.methods.render();
+        },
+
+        updateEarthRoom(app, rect) {
+            this._earthNode.removeAll();
+
+            const mesh = app.createCubeInside({
+                nmae: 'mat_earth',
+                roughness: 1,
+                color: config.earthColor
+            }, this._earthNode);
+            mesh.scale.set(earthRect.width / 2, 15, earthRect.height / 2);
+            mesh.position.y = 15;
         },
 
         updateElements(app) {
@@ -499,6 +546,7 @@ const app = application.create('#viewport', {
                 geo.attributes.texcoord0.value = poly.uv;
                 geo.indices = poly.indices;
                 const mesh = app.createMesh(geo, elementsMaterials[elConfig.type], elementsNodes[elConfig.type]);
+                mesh.culling = false;
                 if (elConfig.type === 'buildings') {
                     let positionAnimateFrom = new Float32Array(poly.position);
                     let positionAnimateTo = poly.position;
@@ -625,9 +673,6 @@ const app = application.create('#viewport', {
 
                         const pbf = new Protobuf(new Uint8Array(buffer));
                         const vTile = new VectorTile(pbf);
-                        if (!vTile.layers.buildings) {
-                            return;
-                        }
 
                         const features = {};
                         ['buildings', 'roads', 'water'].forEach(type => {
@@ -675,7 +720,8 @@ const app = application.create('#viewport', {
                         loading--;
                         if (IS_TILE_STYLE) {
                             if (loading === 0) {
-                                app.methods.updateEarthGround(allBoundingRect);
+                                // app.methods.updateEarthGround(allBoundingRect);
+                                app.methods.updateEarthRoom(allBoundingRect);
                             }
                         }
 
@@ -793,11 +839,13 @@ const app = application.create('#viewport', {
 
         updateAutoRotate() {
             this._control.rotateSpeed = config.rotateSpeed * 50;
-            this._control.autoRotate = Math.abs(config.rotateSpeed) > 0.3;
+            this._control.autoRotate = Math.abs(config.rotateSpeed) > 0.1;
         },
 
         updateSky(app) {
-            config.sky ? this._skybox.attachScene(app.scene) : this._skybox.detachScene();
+            if (this._skybox) {
+                config.sky ? this._skybox.attachScene(app.scene) : this._skybox.detachScene();
+            }
             this._advRenderer.render();
         },
 
@@ -879,7 +927,7 @@ ui.add(config, 'sky').onChange(app.methods.updateSky).onFinishChange(updateUrlSt
 const earthFolder = ui.addFolder('Earth');
 earthFolder.add(config, 'showEarth').onChange(app.methods.updateVisibility).onFinishChange(updateUrlState);
 if (IS_TILE_STYLE) {
-    earthFolder.add(config, 'earthDepth', 1, 50).onChange(app.methods.updateEarthGround).onFinishChange(updateUrlState);
+    // earthFolder.add(config, 'earthDepth', 1, 50).onChange(app.methods.updateEarthGround).onFinishChange(updateUrlState);
 }
 earthFolder.addColor(config, 'earthColor').onChange(app.methods.updateColor).onFinishChange(updateUrlState);
 
