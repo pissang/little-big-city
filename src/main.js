@@ -608,7 +608,7 @@ const app = application.create('#viewport', {
                         createElementMesh(
                             vectorElements.find(config => config.type === key),
                             features[key],
-                            tile, idx
+                            tileRect, idx
                         );
                     }
 
