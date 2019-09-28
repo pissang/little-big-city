@@ -657,10 +657,12 @@ const app = application.create('#viewport', {
                                 return geoType === 'Polygon' || geoType === 'MultiPolygon';
                             }))];
                         }
-                        features.roads = features.roads.filter(feature => {
-                            const geoType = feature.geometry && feature.geometry.type;
-                            return geoType === 'LineString' || geoType === 'MultiLineString';
-                        });
+                        if (features.roads) {
+                            features.roads = features.roads.filter(feature => {
+                                const geoType = feature.geometry && feature.geometry.type;
+                                return geoType === 'LineString' || geoType === 'MultiLineString';
+                            });
+                        }
 
                         mvtCache.set(url, features);
                         for (let key in features) {
