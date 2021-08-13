@@ -126,7 +126,7 @@ const actions = {
     }
 };
 
-const mvtUrlTpl = `https://{s}.tile.nextzen.org/tilezen/vector/v1/${TILE_SIZE}/all/{z}/{x}/{y}.mvt?api_key=EWFsMD1DSEysLDWd2hj2cw`;
+const mvtUrlTpl = `https://tile.nextzen.org/tilezen/vector/v1/${TILE_SIZE}/all/{z}/{x}/{y}.mvt?api_key=EWFsMD1DSEysLDWd2hj2cw`;
 
 const mainLayer = new maptalks.TileLayer('base', {
     tileSize: [TILE_SIZE, TILE_SIZE],
