@@ -267,6 +267,18 @@ function unionRect(out, a, b) {
     out.height = Math.max(a.height + a.y, b.height + b.y) - y;
 }
 
+function detectDevice() {
+    const ua = navigator.userAgent;
+    console.log('ua', ua);
+    if (/mobile/i.test(ua)) {
+        return 'Mobile';
+    } else if (/iPad|Android|Touch/i.test(ua)) {
+        return 'Tablet';
+    } else {
+        return 'Desktop';
+    }
+}
+
 const width = 55;
 const height = 58.5;
 const earthRect = {
@@ -389,15 +401,27 @@ const app = application.create('#viewport', {
         this._advRenderer.render();
 
 
-        return app.createAmbientCubemapLight('./asset/Grand_Canyon_C.hdr', 0.2, 0.8, 1).then(result => {
-            const skybox = new plugin.Skybox({
-                environmentMap: result.specular.cubemap,
-                scene: app.scene
+        if (detectDevice() === 'Desktop') {
+            return app.createAmbientCubemapLight('./asset/Grand_Canyon_C.hdr', 0.2, 0.8, 1).then(result => {
+                const skybox = new plugin.Skybox({
+                    environmentMap: result.specular.cubemap,
+                    scene: app.scene
+                });
+                skybox.material.set('lod', 2);
+                this._skybox = skybox;
+                this._advRenderer.render();
             });
-            skybox.material.set('lod', 2);
-            this._skybox = skybox;
-            this._advRenderer.render();
-        });
+        } else {
+            return app.createAmbientCubemapLight('./asset/Grand_Canyon_C.png', 0.2, 0.8, 1).then(result => {
+                const skybox = new plugin.Skybox({
+                    environmentMap: result.specular.cubemap,
+                    scene: app.scene
+                });
+                skybox.material.set('lod', 2);
+                this._skybox = skybox;
+                this._advRenderer.render();
+            });
+        }
     },
 
     methods: {
